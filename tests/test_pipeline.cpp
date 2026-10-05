@@ -184,18 +184,34 @@ void testControls() {
   CHECK((got == std::vector<int>{3, 12, 21}));
 }
 
+// Test blocks live at namespace scope: MSVC fails to look up a function-local
+// enum from the default member initializers of a function-local class.
+enum class Mode { A = 0, B = 1 };
+struct Typed : Block<int, int> {
+  Control<int>& i = control<int>("i", 0);
+  Control<double>& d = control<double>("d", 0.0);
+  Control<bool>& b = control<bool>("b", false);
+  Control<std::string>& s = control<std::string>("s", "x");
+  Control<Mode>& m = control<Mode>("m", Mode::A);
+  void process(int&& x, Emitter<int>& out) override { out.emit(x); }
+};
+
+struct Probe : Block<int, int> {
+  Control<double>& gain = control<double>("gain", 1.0, "", {0.0, 10.0});
+  Monitor<double>& seen = monitor<double>("seen_gain");
+  int changes = 0;
+  Probe() {
+    gain.onChange([this](const double&) { ++changes; });
+  }
+  void process(int&& x, Emitter<int>& out) override {
+    seen = gain.get();
+    out.emit(static_cast<int>(x * gain.get()));
+  }
+};
+
 // Plain C++ values must not depend on std::variant's converting constructor,
 // which is ambiguous for int on MSVC in C++17 mode.
 void testControlValueTypes() {
-  enum class Mode { A = 0, B = 1 };
-  struct Typed : Block<int, int> {
-    Control<int>& i = control<int>("i", 0);
-    Control<double>& d = control<double>("d", 0.0);
-    Control<bool>& b = control<bool>("b", false);
-    Control<std::string>& s = control<std::string>("s", "x");
-    Control<Mode>& m = control<Mode>("m", Mode::A);
-    void process(int&& x, Emitter<int>& out) override { out.emit(x); }
-  };
   Pipeline p("types");
   auto src = p.source<Counter>("src", 1);
   auto t = p.add<Typed>("t", src);
@@ -224,18 +240,6 @@ void testControlValueTypes() {
 }
 
 void testControlsWhileRunning() {
-  struct Probe : Block<int, int> {
-    Control<double>& gain = control<double>("gain", 1.0, "", {0.0, 10.0});
-    Monitor<double>& seen = monitor<double>("seen_gain");
-    int changes = 0;
-    Probe() {
-      gain.onChange([this](const double&) { ++changes; });
-    }
-    void process(int&& x, Emitter<int>& out) override {
-      seen = gain.get();
-      out.emit(static_cast<int>(x * gain.get()));
-    }
-  };
   Pipeline p("live");
   auto src = p.source<Endless>("src");
   auto pr = p.add<Probe>("probe", src);
