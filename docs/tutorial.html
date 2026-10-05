@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pipeline Library Tutorial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..100,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* Layout: sticky table of contents on the left, one 46rem reading column; collapses to a single column on phones. */
+:root {
+  --paper: #f3f5f4;
+  --panel: #ffffff;
+  --ink: #18212b;
+  --muted: #56636f;
+  --rule: #d6dcdf;
+  --code-bg: #e9eeee;
+  --accent: #a94f0c;      /* amber trace */
+  --signal: #1d6a86;      /* scope-probe blue */
+  --hot-bg: #fbeadb;
+  --good: #2c7a4d;
+  --warn: #9a6a12;
+  --tok-kw: #7a3fb0; --tok-str: #2c7a4d; --tok-num: #a94f0c; --tok-com: #6f7c86; --tok-type: #1d6a86; --tok-fn: #7b4a13;
+  --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --step--1: 0.85rem; --step-0: 1rem; --step-1: 1.2rem; --step-2: 1.55rem; --step-3: 2.1rem; --step-4: 3rem;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101416; --panel: #161c1f; --ink: #e3e8ea; --muted: #98a5ae; --rule: #2a3337; --code-bg: #1a2124;
+    --accent: #f0a04b; --signal: #62b6d4; --hot-bg: #3a2614; --good: #6cc592; --warn: #e2b35c;
+    --tok-kw: #c79bf2; --tok-str: #8fd0a6; --tok-num: #f0a04b; --tok-com: #7f8d96; --tok-type: #7cc6e0; --tok-fn: #e6c27e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #101416; --panel: #161c1f; --ink: #e3e8ea; --muted: #98a5ae; --rule: #2a3337; --code-bg: #1a2124;
+  --accent: #f0a04b; --signal: #62b6d4; --hot-bg: #3a2614; --good: #6cc592; --warn: #e2b35c;
+  --tok-kw: #c79bf2; --tok-str: #8fd0a6; --tok-num: #f0a04b; --tok-com: #7f8d96; --tok-type: #7cc6e0; --tok-fn: #e6c27e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 400 var(--step-0)/1.65 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+.shell {
+  display: grid; grid-template-columns: 15rem minmax(0, 46rem); gap: 3.5rem;
+  max-width: 68rem; margin: 0 auto; padding-inline: 24px; padding-block: 2.5rem 5rem;
+}
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 1.5rem); align-self: start; max-height: calc(100vh - 3rem); overflow-y: auto; }
+nav.toc .brand { font: 750 var(--step-1)/1.1 var(--font-display); font-stretch: 80%; letter-spacing: 0.01em; margin-bottom: 1.25rem; }
+nav.toc .brand span { color: var(--accent); }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; counter-reset: toc; }
+nav.toc a { display: flex; gap: 0.6rem; color: var(--muted); text-decoration: none; font-size: var(--step--1); padding: 0.25rem 0.5rem; border-radius: 4px; line-height: 1.35; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); background: var(--code-bg); }
+nav.toc a .n { font-family: var(--font-mono); color: var(--accent); min-width: 1.4rem; font-variant-numeric: tabular-nums; }
+nav.toc .group { margin-top: 0.9rem; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding-left: 0.5rem; }
+main { min-width: 0; }
+header.hero { padding-bottom: 1.5rem; border-bottom: 1px solid var(--rule); margin-bottom: 2.5rem; }
+.eyebrow { font: 500 0.75rem/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 800 var(--step-4)/1.02 var(--font-display); font-stretch: 72%; letter-spacing: -0.01em; margin: 0.6rem 0 1rem; text-wrap: balance; }
+h2 { font: 750 var(--step-3)/1.1 var(--font-display); font-stretch: 78%; margin: 3.5rem 0 1rem; text-wrap: balance; scroll-margin-top: 1.5rem; display: flex; gap: 0.8rem; align-items: baseline; }
+h2 .n { font: 500 var(--step-1)/1 var(--font-mono); color: var(--accent); }
+h3 { font: 700 var(--step-1)/1.25 var(--font-display); font-stretch: 90%; margin: 2rem 0 0.5rem; text-wrap: balance; }
+p, li { max-width: 65ch; }
+p { margin: 0 0 1rem; }
+.lede { font-size: var(--step-1); line-height: 1.55; color: var(--ink); max-width: 60ch; }
+a { color: var(--signal); text-underline-offset: 2px; }
+code { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--code-bg); padding: 0.08em 0.35em; border-radius: 3px; overflow-wrap: anywhere; }
+ul, ol { padding-left: 1.3rem; margin: 0 0 1rem; }
+li { margin-bottom: 0.35rem; }
+pre.code {
+  position: relative; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 1rem 1.1rem; margin: 0 0 1.25rem; overflow-x: auto; font: 400 0.84rem/1.55 var(--font-mono); tab-size: 2;
+}
+pre.code::before {
+  content: attr(data-lang); position: absolute; top: 0.35rem; right: 0.6rem;
+  font: 500 0.65rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+pre.code code { font-size: inherit; background: none; padding: 0; }
+.hljs-keyword, .hljs-meta .hljs-keyword, .hljs-built_in { color: var(--tok-kw); }
+.hljs-string, .hljs-meta .hljs-string { color: var(--tok-str); }
+.hljs-number, .hljs-literal { color: var(--tok-num); }
+.hljs-comment { color: var(--tok-com); font-style: italic; }
+.hljs-type, .hljs-title.class_ { color: var(--tok-type); }
+.hljs-title.function_ { color: var(--tok-fn); }
+.hljs-meta { color: var(--tok-com); }
+.hljs-attr { color: var(--tok-type); }
+.figure { margin: 1.5rem 0 2rem; overflow-x: auto; }
+svg.chain { display: block; width: 100%; min-width: 640px; height: auto; font-family: var(--font-body); }
+svg.chain .stage rect { fill: var(--panel); stroke: var(--ink); stroke-width: 1.4; }
+svg.chain .stage.hot rect { fill: var(--hot-bg); stroke: var(--accent); }
+svg.chain .reorder rect { fill: var(--panel); stroke: var(--signal); stroke-width: 1.4; stroke-dasharray: 4 3; }
+svg.chain text { fill: var(--ink); font-size: 15px; font-weight: 600; text-anchor: middle; }
+svg.chain text.sub { fill: var(--muted); font-size: 12px; font-weight: 400; }
+svg.chain text.note { fill: var(--muted); font-size: 12px; font-weight: 400; font-style: italic; }
+svg.chain .queue rect { fill: var(--panel); stroke: var(--signal); stroke-width: 1.2; }
+svg.chain .queue rect.fill { fill: var(--signal); opacity: 0.35; }
+svg.chain .queue line { stroke: var(--signal); stroke-width: 1; }
+svg.chain .link line, svg.chain .link path { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+svg.chain .arrowhead { fill: var(--muted); }
+figcaption { font-size: var(--step--1); color: var(--muted); margin-top: 0.5rem; max-width: 65ch; }
+.callout { border-left: 3px solid var(--signal); background: var(--panel); padding: 0.8rem 1rem; margin: 0 0 1.25rem; border-radius: 0 6px 6px 0; }
+.callout.warn { border-left-color: var(--warn); }
+.callout p:last-child { margin-bottom: 0; }
+.callout strong:first-child { font-family: var(--font-display); font-stretch: 85%; letter-spacing: 0.01em; }
+.tablewrap { overflow-x: auto; margin: 0 0 1.5rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 600 0.75rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+td code { white-space: nowrap; }
+.tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.tabs button {
+  font: 500 0.85rem/1 var(--font-body); padding: 0.5rem 0.8rem; border: 1px solid var(--rule); background: var(--panel);
+  color: var(--muted); border-radius: 4px; cursor: pointer;
+}
+.tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--ink); }
+.tabs button:focus-visible, .calc input:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+/* throughput calculator */
+.calc { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 1.1rem; margin: 0 0 1.5rem; }
+.calc .row { display: grid; grid-template-columns: 6.5rem 7rem 4.5rem minmax(0, 1fr) 6.5rem; gap: 0.6rem; align-items: center; padding: 0.3rem 0; }
+.calc .row.head { font: 600 0.7rem/1.2 var(--font-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.calc .name { font-weight: 600; }
+.calc input { width: 100%; font: 400 0.9rem var(--font-mono); padding: 0.3rem 0.4rem; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper); color: var(--ink); font-variant-numeric: tabular-nums; }
+.calc .bar { height: 0.7rem; background: var(--code-bg); border-radius: 2px; position: relative; overflow: hidden; }
+.calc .bar i { position: absolute; inset: 0 auto 0 0; background: var(--signal); border-radius: 2px; transition: width 0.2s; }
+.calc .row.limit .bar i { background: var(--accent); }
+.calc .row.limit .name::after { content: " ◂ limit"; color: var(--accent); font-size: 0.75rem; font-weight: 500; }
+.calc .cap { font: 400 0.85rem var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.calc .result { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--rule); }
+.calc .result b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .calc .bar i { transition: none; } }
+.pill { display: inline-block; font: 500 0.72rem/1 var(--font-mono); padding: 0.25rem 0.45rem; border-radius: 99px; border: 1px solid currentColor; }
+.pill.good { color: var(--good); } .pill.warn { color: var(--warn); }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 0 0 1.25rem; }
+.kv dt { font-family: var(--font-mono); font-size: 0.88rem; color: var(--accent); }
+.kv dd { margin: 0; }
+footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: var(--step--1); }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; padding-inline: 16px; padding-block: 1.5rem 4rem; }
+  nav.toc { position: static; max-height: none; border-bottom: 1px solid var(--rule); padding-bottom: 1rem; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
+  nav.toc .group { display: none; }
+  h1 { font-size: 2.3rem; }
+  h2 { font-size: 1.7rem; }
+}
+@media (max-width: 560px) {
+  .calc .row { grid-template-columns: 5.5rem minmax(0, 1fr) 3.6rem; }
+  .calc .row .bar { grid-column: 1 / -1; }
+  .calc .row .cap { grid-column: 1 / -1; text-align: left; }
+  .calc .row.head > :nth-child(n+4) { display: none; }
+  .kv { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+  .kv dd { margin-bottom: 0.6rem; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <div class="brand">pipeline<span>::</span>tutorial</div>
+  <ol>
+    <li><a href="#overview"><span class="n">00</span>Overview</a></li>
+    <li><a href="#install"><span class="n">01</span>Add it to your project</a></li>
+    <li><a href="#concepts"><span class="n">02</span>Concepts</a></li>
+    <li class="group">Build a receiver</li>
+    <li><a href="#blocks"><span class="n">03</span>Write a block</a></li>
+    <li><a href="#assemble"><span class="n">04</span>Assemble the chain</a></li>
+    <li><a href="#rates"><span class="n">05</span>Different rates</a></li>
+    <li><a href="#parallel"><span class="n">06</span>Parallel stages</a></li>
+    <li><a href="#autoscale"><span class="n">07</span>Autoscaling</a></li>
+    <li><a href="#params"><span class="n">08</span>Controls &amp; monitors</a></li>
+    <li><a href="#ui"><span class="n">09</span>Connect a UI</a></li>
+    <li><a href="#libraries"><span class="n">10</span>Wrap existing libraries</a></li>
+    <li><a href="#lifecycle"><span class="n">11</span>Start, stop, errors</a></li>
+    <li class="group">Reference</li>
+    <li><a href="#performance"><span class="n">12</span>Performance tips</a></li>
+    <li><a href="#api"><span class="n">13</span>API cheat sheet</a></li>
+    <li><a href="#limits"><span class="n">14</span>Limits &amp; FAQ</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero" id="overview">
+  <div class="eyebrow">Header-only C++17 &middot; CMake &middot; MIT</div>
+  <h1>Pipelined receiver chains without the threading code</h1>
+  <p class="lede"><code>pipeline</code> turns a chain of processing blocks (demodulator, decoder, data link, &hellip;) into a multi-threaded pipeline. Every stage runs on its own thread, bounded queues match the rates automatically, slow stages can run on several threads while keeping the output order, and every block exposes controls and monitors that a user interface can read and change while the chain runs.</p>
+  <figure class="figure">
+
+<svg class="chain" viewBox="0 0 980 250" role="img" aria-labelledby="chain-title">
+  <title id="chain-title">Receiver chain: ADC source, demodulator, three parallel decoder workers with a reorder buffer, data link and application, connected by bounded queues.</title>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+    </marker>
+  </defs>
+  <!-- stages -->
+  <g class="stage"><rect x="10" y="95" width="110" height="60" rx="6"/><text x="65" y="122">adc</text><text class="sub" x="65" y="140">Source</text></g>
+  <g class="queue"><rect x="138" y="113" width="52" height="24" rx="3"/><line x1="151" y1="113" x2="151" y2="137"/><line x1="164" y1="113" x2="164" y2="137"/><line x1="177" y1="113" x2="177" y2="137"/></g>
+  <g class="stage"><rect x="208" y="95" width="120" height="60" rx="6"/><text x="268" y="122">demod</text><text class="sub" x="268" y="140">1 worker</text></g>
+  <g class="queue"><rect x="346" y="113" width="52" height="24" rx="3"/><line x1="359" y1="113" x2="359" y2="137"/><line x1="372" y1="113" x2="372" y2="137"/><line x1="385" y1="113" x2="385" y2="137"/><rect class="fill" x="346" y="113" width="52" height="24" rx="3"/></g>
+  <g class="stage hot"><rect x="430" y="30" width="130" height="50" rx="6"/><text x="495" y="60">decoder #0</text></g>
+  <g class="stage hot"><rect x="430" y="100" width="130" height="50" rx="6"/><text x="495" y="130">decoder #1</text></g>
+  <g class="stage hot"><rect x="430" y="170" width="130" height="50" rx="6"/><text x="495" y="200">decoder #2</text></g>
+  <g class="reorder"><rect x="592" y="95" width="88" height="60" rx="6"/><text x="636" y="122">reorder</text><text class="sub" x="636" y="140">by seq</text></g>
+  <g class="queue"><rect x="698" y="113" width="40" height="24" rx="3"/><line x1="711" y1="113" x2="711" y2="137"/><line x1="724" y1="113" x2="724" y2="137"/></g>
+  <g class="stage"><rect x="756" y="95" width="100" height="60" rx="6"/><text x="806" y="122">datalink</text><text class="sub" x="806" y="140">N : 1</text></g>
+  <g class="stage"><rect x="880" y="95" width="90" height="60" rx="6"/><text x="925" y="122">app</text><text class="sub" x="925" y="140">Sink</text></g>
+  <!-- links -->
+  <g class="link">
+    <line x1="120" y1="125" x2="136" y2="125" marker-end="url(#arr)"/>
+    <line x1="190" y1="125" x2="206" y2="125" marker-end="url(#arr)"/>
+    <line x1="328" y1="125" x2="344" y2="125" marker-end="url(#arr)"/>
+    <path d="M398,125 C414,125 410,55 428,55" marker-end="url(#arr)"/>
+    <line x1="398" y1="125" x2="428" y2="125" marker-end="url(#arr)"/>
+    <path d="M398,125 C414,125 410,195 428,195" marker-end="url(#arr)"/>
+    <path d="M560,55 C578,55 574,118 590,118" marker-end="url(#arr)"/>
+    <line x1="560" y1="125" x2="590" y2="125" marker-end="url(#arr)"/>
+    <path d="M560,195 C578,195 574,132 590,132" marker-end="url(#arr)"/>
+    <line x1="680" y1="125" x2="696" y2="125" marker-end="url(#arr)"/>
+    <line x1="738" y1="125" x2="754" y2="125" marker-end="url(#arr)"/>
+    <line x1="856" y1="125" x2="878" y2="125" marker-end="url(#arr)"/>
+  </g>
+  <!-- annotations -->
+  <text class="note" x="350" y="176">full queue</text>
+  <text class="note" x="350" y="191">= backpressure</text>
+  <text class="note" x="495" y="242">bottleneck, autoscaled 1..8</text>
+  <text class="note" x="718" y="160">bounded</text>
+</svg>
+    <figcaption>The example receiver. Each arrow is a bounded queue. The decoder is about four times slower than the demodulator, so it runs on several workers; a reorder buffer restores the frame order before the data link.</figcaption>
+  </figure>
+  <p>The whole receiver above, including its UI hooks, is this much code:</p>
+  <pre class="code" data-lang="cpp"><code class="language-cpp">#include &lt;pipeline/pipeline.hpp&gt;
+using namespace pipeline;
+
+Pipeline rx(&quot;receiver&quot;);
+auto iq   = rx.source&lt;AdcSource&gt;(&quot;adc&quot;, &quot;/dev/sdr0&quot;);    // ctor args follow the name
+auto soft = rx.add&lt;Demodulator&gt;(&quot;demod&quot;, iq);
+auto bits = rx.add&lt;Decoder&gt;(&quot;decoder&quot;, soft, opts().autoscale(1, 8));  // 1..8 threads
+auto pkts = rx.add&lt;DataLink&gt;(&quot;datalink&quot;, bits);
+rx.sink&lt;AppSink&gt;(&quot;app&quot;, pkts);
+
+rx.start();
+rx.setControl(&quot;decoder.iterations&quot;, 12);  // from your UI, any thread
+std::string json = rx.snapshotJson();     // rates, queues, workers, parameters
+rx.stop();                                // drain, flush, join</code></pre>
+</header>
+
+<section id="install">
+<h2><span class="n">01</span>Add it to your project</h2>
+<p>The library is header-only. Its CMake target <code>pipeline::pipeline</code> adds the include path, requires C++17 and links the platform thread library. Pick whichever of the three ways fits your build:</p>
+<div class="tabs" role="tablist" aria-label="Integration method">
+  <button role="tab" id="tab-sub" aria-selected="true" aria-controls="pane-sub">add_subdirectory</button>
+  <button role="tab" id="tab-fetch" aria-selected="false" aria-controls="pane-fetch">FetchContent</button>
+  <button role="tab" id="tab-find" aria-selected="false" aria-controls="pane-find">find_package</button>
+</div>
+<div role="tabpanel" id="pane-sub" aria-labelledby="tab-sub">
+  <p>Copy or add the repository as a git submodule, for example under <code>third_party/pipeline</code>.</p>
+  <pre class="code" data-lang="cmake"><code class="language-cmake"># your project&#x27;s CMakeLists.txt
+add_subdirectory(third_party/pipeline)    # tests and examples are skipped automatically
+
+add_executable(my_receiver main.cpp)
+target_link_libraries(my_receiver PRIVATE pipeline::pipeline)</code></pre>
+</div>
+<div role="tabpanel" id="pane-fetch" aria-labelledby="tab-fetch" hidden>
+  <p>CMake downloads the library at configure time.</p>
+  <pre class="code" data-lang="cmake"><code class="language-cmake">include(FetchContent)
+FetchContent_Declare(pipeline
+  GIT_REPOSITORY https://github.com/mohamadmovahed/pipeline.git
+  GIT_TAG        main)            # pin a tag or commit for reproducible builds
+FetchContent_MakeAvailable(pipeline)
+
+target_link_libraries(my_receiver PRIVATE pipeline::pipeline)</code></pre>
+</div>
+<div role="tabpanel" id="pane-find" aria-labelledby="tab-find" hidden>
+  <p>Install once, then use it like any other package.</p>
+  <pre class="code" data-lang="bash"><code class="language-bash"># once, from the pipeline checkout
+cmake -S . -B build -DPIPELINE_BUILD_TESTS=OFF -DPIPELINE_BUILD_EXAMPLES=OFF
+cmake --install build --prefix /opt/pipeline</code></pre>
+  <pre class="code" data-lang="cmake"><code class="language-cmake"># in your project (configure with -DCMAKE_PREFIX_PATH=/opt/pipeline)
+find_package(pipeline 1.0 REQUIRED)
+target_link_libraries(my_receiver PRIVATE pipeline::pipeline)</code></pre>
+</div>
+<p>To build and try the repository itself (tests and both examples):</p>
+<pre class="code" data-lang="bash"><code class="language-bash">cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+./build/examples/receiver_chain --seconds 9</code></pre>
+<div class="callout"><p><strong>Requirements.</strong> A C++17 compiler (GCC 9+, Clang 10+, MSVC 2019+) and CMake 3.16+. No other dependencies.</p></div>
+</section>
+
+<section id="concepts">
+<h2><span class="n">02</span>Concepts</h2>
+<dl class="kv">
+  <dt>Block&lt;In, Out&gt;</dt><dd>Your processing code. <code>process()</code> receives one input and may emit zero, one or many outputs.</dd>
+  <dt>Source&lt;Out&gt;</dt><dd>The start of the chain (ADC, file, socket). <code>produce()</code> returns <code>false</code> at end of stream.</dd>
+  <dt>Sink&lt;In&gt;</dt><dd>The end of the chain (application, file, network).</dd>
+  <dt>Emitter&lt;T&gt;</dt><dd>Where a block puts its outputs: <code>out.emit(std::move(x))</code>.</dd>
+  <dt>Stage</dt><dd>A block placed in a pipeline: its input queue, one or more worker threads (each with its own block instance), statistics and parameters.</dd>
+  <dt>Port&lt;T&gt;</dt><dd>The typed output of a stage. You pass it to the next stage; mismatched types fail at compile time.</dd>
+  <dt>Control&lt;T&gt;</dt><dd>A parameter the UI writes and the block reads (gain, iterations, bandwidth).</dd>
+  <dt>Monitor&lt;T&gt;</dt><dd>A value the block publishes for the UI (SNR, CRC failures, lock state).</dd>
+  <dt>Pipeline</dt><dd>Owns the stages, starts and stops threads, runs the autoscaler and produces snapshots for the UI.</dd>
+</dl>
+<p>Items move between stages by <code>std::move</code>; a <code>std::vector</code> of samples is never copied by the library. Every item carries a sequence number, which is what lets a parallel stage put its results back in order.</p>
+</section>
+
+<section id="blocks">
+<h2><span class="n">03</span>Write a block</h2>
+<p>First define the data that flows between blocks. Any movable type works; carrying a frame counter is useful for debugging.</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">struct IqBlock   { std::uint64_t frame; std::vector&lt;std::complex&lt;float&gt;&gt; samples; };
+struct SoftFrame { std::uint64_t frame; std::vector&lt;float&gt; llr; };</code></pre>
+<p>A block derives from <code>pipeline::Block&lt;In, Out&gt;</code> and overrides <code>process()</code>. Controls and monitors are declared as member references, initialised by <code>control&lt;T&gt;()</code> and <code>monitor&lt;T&gt;()</code>:</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">class Demodulator : public pipeline::Block&lt;IqBlock, SoftFrame&gt; {
+ public:
+  void process(IqBlock&amp;&amp; in, pipeline::Emitter&lt;SoftFrame&gt;&amp; out) override {
+    SoftFrame f{in.frame, {}};
+    f.llr.reserve(in.samples.size());
+    const float g = static_cast&lt;float&gt;(gain_.get());
+    for (const auto&amp; s : in.samples) f.llr.push_back(g * s.real());
+
+    snr_ = estimateSnrDb(in.samples);   // publish a value to the UI
+    out.emit(std::move(f));             // one output for this input
+  }
+
+ private:
+  pipeline::Control&lt;double&gt;&amp; gain_ =
+      control&lt;double&gt;(&quot;llr_gain&quot;, 1.0, &quot;extra LLR scaling&quot;, {0.01, 100.0});
+  pipeline::Monitor&lt;double&gt;&amp; snr_ =
+      monitor&lt;double&gt;(&quot;snr_est&quot;, &quot;estimated Es/N0&quot;, pipeline::Aggregate::Mean, &quot;dB&quot;);
+};</code></pre>
+<div class="callout"><p><strong>No locks needed inside a block.</strong> When a stage runs on several threads, each thread gets its own instance of the block. Members such as filter states, buffers and random generators are therefore private to one thread. Control changes from the UI are applied by the block's own thread <em>between</em> two calls to <code>process()</code>, so a value never changes in the middle of an item.</p></div>
+<p>Sources and sinks look the same:</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">class AdcSource : public pipeline::Source&lt;IqBlock&gt; {
+ public:
+  explicit AdcSource(std::string device) : dev_(std::move(device)) {}
+  bool produce(pipeline::Emitter&lt;IqBlock&gt;&amp; out) override {
+    IqBlock b{frame_++, dev_.read(4096)};        // blocks until the hardware has data
+    out.emit(std::move(b));
+    return !stopRequested();                    // false = end of stream
+  }
+ private:
+  SdrDevice dev_;
+  std::uint64_t frame_ = 0;
+};
+
+class AppSink : public pipeline::Sink&lt;NetPacket&gt; {
+ public:
+  void consume(NetPacket&amp;&amp; p) override { socket_.send(p.payload); ++packets_; }
+ private:
+  UdpSocket socket_{&quot;10.0.0.2&quot;, 5000};
+  pipeline::Monitor&lt;std::int64_t&gt;&amp; packets_ =
+      monitor&lt;std::int64_t&gt;(&quot;packets&quot;, &quot;packets delivered&quot;, pipeline::Aggregate::Sum);
+};</code></pre>
+<p>The hooks <code>onStart()</code> and <code>onStop()</code> run on the worker thread before the first and after the last item. Use them for thread-affine setup such as opening a device or allocating a GPU stream.</p>
+</section>
+
+<section id="assemble">
+<h2><span class="n">04</span>Assemble the chain</h2>
+<pre class="code" data-lang="cpp"><code class="language-cpp">using namespace pipeline;
+
+Pipeline rx(&quot;receiver&quot;);
+
+Port&lt;IqBlock&gt;      iq   = rx.source&lt;AdcSource&gt;(&quot;adc&quot;, std::string(&quot;/dev/sdr0&quot;));
+Port&lt;SoftFrame&gt;    soft = rx.add&lt;Demodulator&gt;(&quot;demod&quot;, iq);
+Port&lt;DecodedFrame&gt; bits = rx.add&lt;Decoder&gt;(&quot;decoder&quot;, soft, opts().autoscale(1, 8).queue(64));
+Port&lt;NetPacket&gt;    pkts = rx.add&lt;DataLink&gt;(&quot;datalink&quot;, bits);
+rx.sink&lt;AppSink&gt;(&quot;app&quot;, pkts);
+
+rx.start();     // one thread per worker + one supervisor thread
+// ... the application runs; the UI reads rx.snapshot() and calls rx.setControl(...)
+rx.stop();      // sources stop, queued data is processed and flushed, threads joined</code></pre>
+<p>Each call returns the <code>Port</code> of the new stage, which you pass to the next call. Stage names must be unique and contain no dot, because controls are addressed as <code>"stage.control"</code>. <code>start()</code> checks that every output is connected and throws <code>std::logic_error</code> otherwise.</p>
+<p>The <code>opts()</code> builder sets the per-stage options:</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Option</th><th>Default</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><code>.parallel(n)</code></td><td>1</td><td>Run the stage on <em>n</em> worker threads.</td></tr>
+    <tr><td><code>.autoscale(min, max)</code></td><td>off</td><td>Let the pipeline choose between <em>min</em> and <em>max</em> workers at run time.</td></tr>
+    <tr><td><code>.queue(n)</code></td><td>64</td><td>Capacity of the stage's input queue, in items.</td></tr>
+    <tr><td><code>.unordered()</code></td><td>ordered</td><td>Parallel results may leave in completion order.</td></tr>
+    <tr><td><code>.onError(policy)</code></td><td><code>Skip</code></td><td>What happens when <code>process()</code> throws. See <a href="#lifecycle">section 11</a>.</td></tr>
+    <tr><td><code>.reorderWindow(n)</code></td><td>4&times;max+4</td><td>How far ahead of the oldest unfinished item a parallel worker may run.</td></tr>
+  </tbody>
+</table></div>
+</section>
+
+<section id="rates">
+<h2><span class="n">05</span>Different rates are handled for you</h2>
+<p>Every stage reads from a <strong>bounded</strong> queue. When a stage is slower than the one before it, its queue fills up and the producer blocks in <code>push()</code> until there is room again. This is backpressure: the whole chain settles at the speed of its slowest stage, no data is dropped and memory stays bounded. You never write rate-matching code.</p>
+<p>A stage's rate is set by how many items it emits per input. Each of these needs nothing more than the right number of <code>emit()</code> calls:</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Pattern</th><th>In : out</th><th>How</th></tr></thead>
+  <tbody>
+    <tr><td>Demodulator</td><td>1 : 1</td><td>Emit once per input.</td></tr>
+    <tr><td>Packing frames into packets, decimation</td><td>N : 1</td><td>Accumulate in a member, emit every N inputs, emit the rest in <code>flush()</code>.</td></tr>
+    <tr><td>Segmentation, channelizer, interpolation</td><td>1 : N</td><td>Call <code>emit()</code> N times.</td></tr>
+    <tr><td>CRC check, squelch</td><td>1 : 0 or 1</td><td>Return without emitting to drop the item.</td></tr>
+  </tbody>
+</table></div>
+<pre class="code" data-lang="cpp"><code class="language-cpp">class DataLink : public pipeline::Block&lt;DecodedFrame, NetPacket&gt; {
+ public:
+  void process(DecodedFrame&amp;&amp; in, pipeline::Emitter&lt;NetPacket&gt;&amp; out) override {
+    if (!crcOk(in)) { ++crcFail_; return; }          // 0 outputs: frame dropped
+    pending_.append(in);
+    if (pending_.frames == framesPerPacket_.get()) {  // N inputs -&gt; 1 output
+      out.emit(std::move(pending_));
+      pending_ = {};
+    }
+  }
+  void flush(pipeline::Emitter&lt;NetPacket&gt;&amp; out) override {   // end of stream
+    if (pending_.frames) out.emit(std::move(pending_));
+    pending_ = {};
+  }
+ private:
+  pipeline::Control&lt;int&gt;&amp; framesPerPacket_ =
+      control&lt;int&gt;(&quot;frames_per_packet&quot;, 4, &quot;good frames per packet&quot;, {1, 64});
+  pipeline::Monitor&lt;std::int64_t&gt;&amp; crcFail_ =
+      monitor&lt;std::int64_t&gt;(&quot;crc_fail&quot;, &quot;frames with bad CRC&quot;, pipeline::Aggregate::Sum);
+  NetPacket pending_;
+};</code></pre>
+<pre class="code" data-lang="cpp"><code class="language-cpp">void process(Burst&amp;&amp; in, pipeline::Emitter&lt;Symbol&gt;&amp; out) override {
+  for (auto&amp; sym : split(in)) out.emit(std::move(sym));   // 1 input -&gt; many outputs
+}</code></pre>
+<p><code>flush()</code> is called once at end of stream (after <code>stop()</code> or when the source ends), so partially filled packets are not lost.</p>
+
+<h3>How fast will the chain run?</h3>
+<p>Throughput is the smallest capacity of any stage, where capacity is workers &times; items per second per worker. Change the numbers to see where your bottleneck is and how many workers it needs. The defaults match the example receiver: the decoder is about 4&times; slower than the demodulator.</p>
+<div class="calc" id="calc">
+  <div class="row head"><span>Stage</span><span>frames/s per worker</span><span>workers</span><span>capacity</span><span></span></div>
+</div>
+<p>In the running library you do not have to compute this: the snapshot reports each stage's <code>utilization</code> and the pipeline names the busiest stage in <code>bottleneck</code>.</p>
+</section>
+
+<section id="parallel">
+<h2><span class="n">06</span>Parallel stages</h2>
+<p>A stage with more than one worker has one block instance per worker, all reading the same input queue. Results go through a reorder buffer keyed by the input's sequence number, so the next stage sees exactly the order it would have seen with one worker.</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">// fixed: 4 decoder threads, output order preserved
+rx.add&lt;Decoder&gt;(&quot;decoder&quot;, soft, opts().parallel(4));
+
+// automatic: start with 1 thread, grow up to 8 while the decoder is the bottleneck
+rx.add&lt;Decoder&gt;(&quot;decoder&quot;, soft, opts().autoscale(1, 8));
+
+// order not needed downstream: skip the reorder buffer
+rx.add&lt;Decoder&gt;(&quot;decoder&quot;, soft, opts().parallel(4).unordered());
+
+// constructor arguments come after the options; every replica gets a copy
+auto code = std::make_shared&lt;const LdpcCode&gt;(LdpcCode::load(&quot;wifi_1944_r12.alist&quot;));
+rx.add&lt;Decoder&gt;(&quot;decoder&quot;, soft, opts().autoscale(1, 8), code);</code></pre>
+<div class="callout warn"><p><strong>Only parallelise independent items.</strong> Running a block on several workers is correct when each input can be processed on its own, such as one codeword per decoder call. A block that carries state from one item to the next (a PLL, an equaliser, an accumulator like the data link above) must stay at one worker, or must be redesigned so that each item contains everything it needs.</p></div>
+<p>The reorder window bounds memory: a worker that finishes far ahead of the oldest item still in progress waits before taking new work. Use <code>.unordered()</code> when the downstream stage does not care about order (for example a sink that writes independent packets); it skips the reorder step.</p>
+<p>Constructor arguments passed to <code>add&lt;B&gt;()</code> are copied into every replica. For large read-only data such as code tables, pass a <code>std::shared_ptr&lt;const T&gt;</code> so all replicas share one copy.</p>
+</section>
+
+<section id="autoscale">
+<h2><span class="n">07</span>Autoscaling</h2>
+<p>With <code>opts().autoscale(min, max)</code> the pipeline's supervisor thread checks every stage each <code>monitorPeriod</code> and adds or removes one worker at a time:</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Decision</th><th>When</th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill warn">add worker</span></td><td>utilization &ge; <code>scaleUpUtilization</code> and input queue fill &ge; <code>scaleUpQueueFill</code> and workers &lt; max</td></tr>
+    <tr><td><span class="pill good">remove worker</span></td><td>utilization &le; <code>scaleDownUtilization</code> and input queue fill &le; <code>scaleDownQueueFill</code> and workers &gt; min</td></tr>
+  </tbody>
+</table></div>
+<p><em>Utilization</em> counts only the time spent inside <code>process()</code>. A stage that is waiting on a slow downstream stage has a full input queue but low utilization, so it is not scaled up; only the real bottleneck is. A cooldown between two decisions for the same stage lets the queues settle.</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">pipeline::PipelineOptions po;
+po.monitorPeriod        = std::chrono::milliseconds(250);  // rates, autoscaler and onUpdate period
+po.autoscale            = true;
+po.scaleUpUtilization   = 0.80;   // add a worker when utilization &gt;= 80 % ...
+po.scaleUpQueueFill     = 0.50;   // ... and the input queue is at least half full
+po.scaleDownUtilization = 0.30;   // remove one when utilization &lt;= 30 % ...
+po.scaleDownQueueFill   = 0.05;   // ... and the input queue is (nearly) empty
+po.scaleCooldown        = std::chrono::milliseconds(1000);
+pipeline::Pipeline rx(&quot;receiver&quot;, po);
+
+rx.stage(&quot;decoder&quot;).setWorkers(6);   // manual override, clamped to [1, maxWorkers]</code></pre>
+<p>The example receiver prints this when started with a decoder that is too slow for one thread, then made cheaper from the UI after six seconds:</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>t</th><th>decoder workers</th><th>decoder utilization</th><th>decoder queue</th><th>event</th></tr></thead>
+  <tbody>
+    <tr><td>1 s</td><td>3/4</td><td>97 %</td><td>64/64</td><td>scaling up to catch up the backlog</td></tr>
+    <tr><td>2 s</td><td>4/4</td><td>76 %</td><td>0/64</td><td>keeping up with 4000 frames/s</td></tr>
+    <tr><td>6 s</td><td>4/4</td><td>58 %</td><td>0/64</td><td>UI sets <code>decoder.iterations</code> 300 &rarr; 60</td></tr>
+    <tr><td>7 s</td><td>2/4</td><td>17 %</td><td>0/64</td><td>scaling down</td></tr>
+    <tr><td>8 s</td><td>1/4</td><td>35 %</td><td>0/64</td><td>one worker is enough</td></tr>
+  </tbody>
+</table></div>
+<p>Retiring a worker is safe: it finishes its current item, flushes, and its counters (monitors aggregated with <code>Sum</code>) are kept in the stage totals.</p>
+</section>
+
+<section id="params">
+<h2><span class="n">08</span>Controls and monitors</h2>
+<p>Declare parameters as member references. The arguments are the name, the initial value (controls) or the aggregation (monitors), a description, an optional range and an optional unit. The UI gets all of this metadata, so it can build its widgets without any extra configuration.</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">class ChannelFilter : public pipeline::Block&lt;IqBlock, IqBlock&gt; {
+ public:
+  ChannelFilter() {
+    taps_ = designLowpass(bandwidth_.get());
+    // runs on this block&#x27;s worker thread, between two process() calls
+    bandwidth_.onChange([this](const double&amp; bw) { taps_ = designLowpass(bw); });
+  }
+  void process(IqBlock&amp;&amp; in, pipeline::Emitter&lt;IqBlock&gt;&amp; out) override {
+    filter(in.samples, taps_);
+    overloads_ += countClipped(in.samples);
+    out.emit(std::move(in));
+  }
+ private:
+  pipeline::Control&lt;double&gt;&amp; bandwidth_ =
+      control&lt;double&gt;(&quot;bandwidth&quot;, 200e3, &quot;channel bandwidth&quot;, {1e3, 10e6}, &quot;Hz&quot;);
+  pipeline::Control&lt;bool&gt;&amp; bypass_ = control&lt;bool&gt;(&quot;bypass&quot;, false, &quot;pass samples through&quot;);
+  pipeline::Monitor&lt;std::int64_t&gt;&amp; overloads_ =
+      monitor&lt;std::int64_t&gt;(&quot;overloads&quot;, &quot;clipped samples&quot;, pipeline::Aggregate::Sum);
+  std::vector&lt;float&gt; taps_;
+};</code></pre>
+<p>Supported types are <code>bool</code>, integer and enum types (shown as <code>int</code>), <code>float</code> and <code>double</code> (shown as <code>double</code>) and <code>std::string</code>.</p>
+<h3>Thread safety</h3>
+<ul>
+  <li><code>setControl()</code> may be called from any thread. The value is checked against the range immediately and an invalid value throws without changing anything.</li>
+  <li>The new value is applied by the block's worker thread before its next item; <code>onChange</code> callbacks run there too. Inside the block, read controls with <code>get()</code>; no lock is involved.</li>
+  <li>Monitors of arithmetic type are lock-free atomics. Write them with <code>=</code>, <code>+=</code> or <code>++</code>.</li>
+  <li>A control set on a parallel stage is applied to every replica, including replicas the autoscaler starts later.</li>
+</ul>
+<h3>Monitors of parallel stages</h3>
+<p>Each replica has its own monitor values. The <code>Aggregate</code> chosen at declaration says how they are combined for the UI:</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Aggregate</th><th>Use for</th><th>Example</th></tr></thead>
+  <tbody>
+    <tr><td><code>Sum</code></td><td>Counters</td><td>frames decoded, CRC failures, bytes</td></tr>
+    <tr><td><code>Mean</code> (default)</td><td>Estimates</td><td>SNR, EVM, average iterations</td></tr>
+    <tr><td><code>Min</code> / <code>Max</code></td><td>Worst or best case</td><td>peak level, worst-case latency</td></tr>
+    <tr><td><code>First</code></td><td>Values that are the same in every replica</td><td>mode, lock state, a status string</td></tr>
+  </tbody>
+</table></div>
+<h3>Reading and writing from outside</h3>
+<pre class="code" data-lang="cpp"><code class="language-cpp">rx.setControl(&quot;filter.bandwidth&quot;, 125e3);              // typed value
+rx.setControl(&quot;filter.bypass&quot;, true);
+rx.setControlFromString(&quot;decoder.iterations&quot;, &quot;12&quot;);   // text from a UI field or a command line
+pipeline::Value v = rx.getControl(&quot;filter.bandwidth&quot;);  // the value the UI should show
+pipeline::Value n = rx.getMonitor(&quot;filter.overloads&quot;);  // aggregated over all replicas
+
+try {
+  rx.setControl(&quot;filter.bandwidth&quot;, 50e6);             // outside {1e3, 10e6}
+} catch (const std::out_of_range&amp; e) {
+  showError(e.what());                                 // nothing was changed
+}</code></pre>
+</section>
+
+<section id="ui">
+<h2><span class="n">09</span>Connect a user interface</h2>
+<p>The library has no GUI dependency. It gives you a <code>PipelineSnapshot</code>: plain structs with, for every stage, the worker count, input and output rates, utilization, backpressure, queue fill, error count, and every control (with type, range, unit and description) and monitor. There are two ways to get it.</p>
+<h3>Poll from the UI thread</h3>
+<p><code>snapshot()</code> is thread-safe and cheap enough to call a few times per second.</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">// Qt example: refresh a table from a timer on the GUI thread
+QObject::connect(&amp;timer, &amp;QTimer::timeout, [&amp;] {
+  const pipeline::PipelineSnapshot s = rx.snapshot();
+  statusBar-&gt;showMessage(QString(&quot;bottleneck: %1&quot;).arg(QString::fromStdString(s.bottleneck)));
+  for (int r = 0; r &lt; static_cast&lt;int&gt;(s.stages.size()); ++r) {
+    const pipeline::StageSnapshot&amp; st = s.stages[r];
+    table-&gt;setItem(r, 0, new QTableWidgetItem(QString::fromStdString(st.name)));
+    table-&gt;setItem(r, 1, new QTableWidgetItem(QString(&quot;%1/%2&quot;).arg(st.workers).arg(st.maxWorkers)));
+    table-&gt;setItem(r, 2, new QTableWidgetItem(QString::number(st.inRate, &#x27;f&#x27;, 0)));
+    table-&gt;setItem(r, 3, new QTableWidgetItem(QString::number(100 * st.utilization, &#x27;f&#x27;, 0) + &quot; %&quot;));
+    table-&gt;setItem(r, 4, new QTableWidgetItem(QString(&quot;%1/%2&quot;).arg(st.queueSize).arg(st.queueCapacity)));
+  }
+});
+timer.start(250);
+
+// a spin box bound to a control
+QObject::connect(snrSpin, qOverload&lt;double&gt;(&amp;QDoubleSpinBox::valueChanged),
+                 [&amp;](double v) { rx.setControl(&quot;demod.llr_gain&quot;, v); });</code></pre>
+<h3>Push to the UI</h3>
+<pre class="code" data-lang="cpp"><code class="language-cpp">// Push model: called on the supervisor thread every monitorPeriod. Register before start().
+rx.onUpdate([&amp;](const pipeline::PipelineSnapshot&amp; s) {
+  websocket.broadcast(pipeline::toJson(s));     // or copy s and post it to your GUI thread
+});
+
+// and the way back, e.g. a message {&quot;path&quot;: &quot;decoder.iterations&quot;, &quot;value&quot;: &quot;12&quot;}
+void onMessage(const std::string&amp; path, const std::string&amp; value) {
+  rx.setControlFromString(path, value);         // throws std::invalid_argument / std::out_of_range
+}</code></pre>
+<h3>JSON</h3>
+<p><code>rx.snapshotJson()</code> or <code>pipeline::toJson(snapshot)</code> gives the same data as JSON, ready for a web UI, a log file or a remote monitor. This is the decoder entry from the example (shortened):</p>
+<pre class="code" data-lang="json"><code class="language-json">{
+  &quot;name&quot;: &quot;receiver&quot;, &quot;state&quot;: &quot;running&quot;, &quot;uptime&quot;: 3.0, &quot;bottleneck&quot;: &quot;decoder&quot;,
+  &quot;stages&quot;: [
+    {
+      &quot;name&quot;: &quot;decoder&quot;, &quot;kind&quot;: &quot;block&quot;,
+      &quot;workers&quot;: 3, &quot;minWorkers&quot;: 1, &quot;maxWorkers&quot;: 4,
+      &quot;itemsIn&quot;: 12002, &quot;itemsOut&quot;: 12002, &quot;errors&quot;: 0,
+      &quot;inRate&quot;: 4069.6, &quot;outRate&quot;: 4069.5,
+      &quot;utilization&quot;: 0.79, &quot;backpressure&quot;: 0.018,
+      &quot;queueSize&quot;: 0, &quot;queueCapacity&quot;: 64, &quot;finished&quot;: false,
+      &quot;controls&quot;: [
+        { &quot;name&quot;: &quot;iterations&quot;, &quot;type&quot;: &quot;int&quot;, &quot;value&quot;: 60,
+          &quot;description&quot;: &quot;decoder passes (CPU cost per frame)&quot;, &quot;min&quot;: 1, &quot;max&quot;: 1000 }
+      ],
+      &quot;monitors&quot;: [
+        { &quot;name&quot;: &quot;corrected_bits&quot;, &quot;type&quot;: &quot;int&quot;, &quot;value&quot;: 423330,
+          &quot;description&quot;: &quot;bits fixed by the code&quot;, &quot;aggregate&quot;: &quot;sum&quot; },
+        { &quot;name&quot;: &quot;frames&quot;, &quot;type&quot;: &quot;int&quot;, &quot;value&quot;: 12002,
+          &quot;description&quot;: &quot;frames decoded&quot;, &quot;aggregate&quot;: &quot;sum&quot; }
+      ]
+    }
+  ]
+}</code></pre>
+<p>Rates are smoothed over a few monitor periods. <code>utilization</code> and <code>backpressure</code> are fractions of the time per worker: high utilization means the stage is the limit; high backpressure means it is waiting for a slower stage after it.</p>
+</section>
+
+<section id="libraries">
+<h2><span class="n">10</span>Wrap existing processing libraries</h2>
+<p>You do not have to write a class for every step. When the processing already exists as a function in your DSP or FEC library, wrap it in a lambda:</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Call</th><th>Callable signature</th></tr></thead>
+  <tbody>
+    <tr><td><code>rx.sourceFn&lt;Out&gt;(name, f)</code></td><td><code>bool f(Emitter&lt;Out&gt;&amp;)</code></td></tr>
+    <tr><td><code>rx.map(name, port, f, opts)</code></td><td><code>Out f(In&amp;&amp;)</code> &mdash; output type is deduced</td></tr>
+    <tr><td><code>rx.blockFn&lt;Out&gt;(name, port, f, opts)</code></td><td><code>void f(In&amp;&amp;, Emitter&lt;Out&gt;&amp;)</code></td></tr>
+    <tr><td><code>rx.sinkFn(name, port, f, opts)</code></td><td><code>void f(In&amp;&amp;)</code></td></tr>
+  </tbody>
+</table></div>
+<pre class="code" data-lang="cpp"><code class="language-cpp">// Your existing library, unchanged:
+//   std::vector&lt;std::uint8_t&gt; ldpc::decode(const std::vector&lt;float&gt;&amp; llr, int maxIterations);
+//   std::vector&lt;IqBlock&gt;       dsp::channelize(const IqBlock&amp; wideband, int channels);
+
+int frame = 0;
+auto iq = rx.sourceFn&lt;IqBlock&gt;(&quot;file&quot;, [frame, f = std::make_shared&lt;IqFile&gt;(&quot;capture.cf32&quot;)]
+                                       (pipeline::Emitter&lt;IqBlock&gt;&amp; out) mutable {
+  auto samples = f-&gt;read(4096);
+  if (samples.empty()) return false;               // end of file = end of stream
+  out.emit(IqBlock{static_cast&lt;std::uint64_t&gt;(frame++), std::move(samples)});
+  return true;
+});
+
+// 1 -&gt; N: one item per channel
+auto chans = rx.blockFn&lt;IqBlock&gt;(&quot;channelizer&quot;, iq, [](IqBlock&amp;&amp; in, pipeline::Emitter&lt;IqBlock&gt;&amp; out) {
+  for (auto&amp; ch : dsp::channelize(in, 8)) out.emit(std::move(ch));
+});
+
+auto soft = rx.add&lt;Demodulator&gt;(&quot;demod&quot;, chans);
+
+// 1 -&gt; 1, output type deduced from the lambda; runs on up to 8 threads, order kept
+auto bits = rx.map(&quot;decoder&quot;, soft, [](SoftFrame&amp;&amp; f) {
+  return DecodedFrame{f.frame, ldpc::decode(f.llr, 20)};
+}, pipeline::opts().autoscale(1, 8));
+
+rx.sinkFn(&quot;print&quot;, bits, [](DecodedFrame&amp;&amp; d) {
+  std::printf(&quot;frame %llu: %zu bytes\n&quot;, static_cast&lt;unsigned long long&gt;(d.frame), d.bytes.size());
+});</code></pre>
+<p>The callable is copied once per worker, the same way block constructor arguments are. Lambda stages have no controls or monitors of their own; when a step needs them, turn it into a small class.</p>
+</section>
+
+<section id="lifecycle">
+<h2><span class="n">11</span>Start, stop and errors</h2>
+<pre class="code" data-lang="cpp"><code class="language-cpp">rx.start();
+
+rx.wait();                                        // until the sources end and all data is drained
+bool done = rx.waitFor(std::chrono::seconds(5));  // same, with a timeout
+rx.stop();                                        // graceful: stop sources, drain, flush, join
+rx.abort();                                       // immediate: drop queued data, join
+
+if (rx.state() == pipeline::PipelineState::Aborted)
+  std::cerr &lt;&lt; &quot;receiver stopped: &quot; &lt;&lt; rx.snapshot().error &lt;&lt; &quot;\n&quot;;</code></pre>
+<div class="tablewrap"><table>
+  <thead><tr><th>Call</th><th>What happens</th></tr></thead>
+  <tbody>
+    <tr><td><code>stop()</code></td><td>Sources stop after their current <code>produce()</code>. Everything already in the queues is processed, every block is flushed, then threads are joined. State becomes <code>Finished</code>.</td></tr>
+    <tr><td><code>abort()</code></td><td>Queues are cleared and all waits are woken. No flush. State becomes <code>Aborted</code>.</td></tr>
+    <tr><td>source returns <code>false</code></td><td>End of stream; the chain drains and finishes on its own. Use <code>wait()</code>.</td></tr>
+    <tr><td>destructor</td><td>Calls <code>abort()</code> if the pipeline is still running.</td></tr>
+  </tbody>
+</table></div>
+<p>A source that blocks on hardware should check <code>stopRequested()</code> or use a read timeout, so that <code>stop()</code> and <code>abort()</code> return promptly.</p>
+<h3>Exceptions in blocks</h3>
+<pre class="code" data-lang="cpp"><code class="language-cpp">// default: count the error, drop that item, keep going
+rx.add&lt;Decoder&gt;(&quot;decoder&quot;, soft, opts().onError(pipeline::ErrorPolicy::Skip));
+
+// a broken stage aborts the whole pipeline
+rx.add&lt;DataLink&gt;(&quot;datalink&quot;, bits, opts().onError(pipeline::ErrorPolicy::Stop));</code></pre>
+<p>With either policy the stage's <code>errors</code> counter and <code>lastError</code> message appear in the snapshot. With <code>Stop</code>, <code>snapshot().error</code> holds <code>"stage: message"</code> of the first fatal error.</p>
+</section>
+
+<section id="performance">
+<h2><span class="n">12</span>Performance tips</h2>
+<ul>
+  <li><strong>Make items big enough.</strong> Passing one item through a queue costs a few microseconds (measured 2&ndash;8&nbsp;&micro;s per item on a 4-core VM). Pass frames, codewords or blocks of 1k&ndash;10k samples, never single samples. A good item takes at least 50&ndash;100&nbsp;&micro;s to process.</li>
+  <li><strong>Move, don't copy.</strong> Take the input by <code>In&amp;&amp;</code>, modify it in place where you can and <code>emit(std::move(...))</code> it.</li>
+  <li><strong>Size queues for jitter, not throughput.</strong> Queues absorb bursts; they do not make anything faster. 16&ndash;64 items is usually enough. Large queues add latency.</li>
+  <li><strong>Leave a core for the source.</strong> A source that reads hardware in real time should not compete with decoder workers; set <code>autoscale(1, cores - 1)</code>.</li>
+  <li><strong>Read the snapshot.</strong> The stage with utilization near 100&nbsp;% is your bottleneck. A stage with high backpressure is fast enough and waiting for the next one.</li>
+  <li><strong>Sources look busy.</strong> Time a source spends waiting for hardware inside <code>produce()</code> counts as utilization. That is why sources are never reported as the bottleneck.</li>
+</ul>
+</section>
+
+<section id="api">
+<h2><span class="n">13</span>API cheat sheet</h2>
+<div class="tablewrap"><table>
+  <thead><tr><th>Call</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>Pipeline rx(name, PipelineOptions)</code></td><td>Create a pipeline</td></tr>
+    <tr><td><code>rx.source&lt;B&gt;(name, args...)</code></td><td>Add a source block, returns <code>Port&lt;Out&gt;</code></td></tr>
+    <tr><td><code>rx.add&lt;B&gt;(name, port [, opts, args...])</code></td><td>Add a processing block</td></tr>
+    <tr><td><code>rx.sink&lt;B&gt;(name, port [, opts, args...])</code></td><td>Add a sink block</td></tr>
+    <tr><td><code>sourceFn / map / blockFn / sinkFn</code></td><td>Same, from a callable</td></tr>
+    <tr><td><code>rx.start() / stop() / abort() / wait() / waitFor(d)</code></td><td>Run control</td></tr>
+    <tr><td><code>rx.state() / running()</code></td><td><code>Idle, Running, Stopping, Finished, Aborted</code></td></tr>
+    <tr><td><code>rx.setControl("stage.name", value)</code></td><td>Write a control (typed)</td></tr>
+    <tr><td><code>rx.setControlFromString(path, text)</code></td><td>Write a control from text</td></tr>
+    <tr><td><code>rx.getControl(path) / getMonitor(path)</code></td><td>Read one value</td></tr>
+    <tr><td><code>rx.snapshot() / snapshotJson()</code></td><td>Everything, for the UI</td></tr>
+    <tr><td><code>rx.onUpdate(fn)</code></td><td>Periodic snapshot callback</td></tr>
+    <tr><td><code>rx.bottleneck()</code></td><td>Busiest non-source stage</td></tr>
+    <tr><td><code>rx.stage(name).setWorkers(n)</code></td><td>Manual worker count</td></tr>
+    <tr><td><code>control&lt;T&gt;(name, init, desc, {min,max}, unit)</code></td><td>Declare a control in a block</td></tr>
+    <tr><td><code>monitor&lt;T&gt;(name, desc, Aggregate, unit)</code></td><td>Declare a monitor in a block</td></tr>
+    <tr><td><code>ctl.get() / ctl.set(v) / ctl.onChange(fn)</code></td><td>Use a control inside the block</td></tr>
+    <tr><td><code>mon = v; mon += d; ++mon;</code></td><td>Update a monitor</td></tr>
+    <tr><td><code>replicaIndex() / stopRequested()</code></td><td>Inside a block</td></tr>
+  </tbody>
+</table></div>
+<p>Headers: <code>pipeline/pipeline.hpp</code> includes everything. The files are <code>block.hpp</code> (blocks, emitter), <code>parameters.hpp</code> (controls, monitors), <code>stage.hpp</code> (stage engine, options), <code>graph.hpp</code> (<code>Pipeline</code>), <code>channel.hpp</code> (bounded queue), <code>snapshot.hpp</code> and <code>json.hpp</code>.</p>
+</section>
+
+<section id="limits">
+<h2><span class="n">14</span>Limits and FAQ</h2>
+<h3>Can one output feed two stages?</h3>
+<p>No. Each output has exactly one consumer, so the graph is a chain. To fan out, consume both paths in one block, or end the chain in a sink that pushes into a second pipeline's source.</p>
+<h3>Can a source run in parallel?</h3>
+<p>No. Sources always have one worker, because their order defines the sequence numbers. Make the source cheap (read and forward) and move work into the next stage.</p>
+<h3>Can I restart a pipeline?</h3>
+<p>A pipeline runs once. Build a new one to run again; building is cheap.</p>
+<h3>What happens to a block's state when a worker is retired?</h3>
+<p>Its <code>flush()</code> is called and its outputs are sent on, then the instance is destroyed. This is one more reason to keep parallel blocks stateless between items.</p>
+<h3>Which thread calls what?</h3>
+<p>Each worker thread calls <code>onStart</code>, <code>process</code>/<code>produce</code>/<code>consume</code>, <code>onChange</code> callbacks, <code>flush</code> and <code>onStop</code> for its own block instance. The supervisor thread calls <code>onUpdate</code>. Your UI thread calls <code>snapshot</code> and <code>setControl</code>.</p>
+<h3>Where is a complete example?</h3>
+<p><code>examples/receiver_chain.cpp</code> runs a simulated BPSK link through tx simulator, demodulator, autoscaled decoder, data link and application, prints a dashboard every second and changes controls while running. <code>examples/quickstart.cpp</code> is the smallest useful program. <code>tests/test_pipeline.cpp</code> shows every feature in isolation.</p>
+</section>
+
+<footer>pipeline 1.0 &middot; header-only C++17 &middot; MIT licence</footer>
+</main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cmake.min.js"></script>
+<script>
+(function () {
+  // syntax highlighting (optional; the page reads fine without it)
+  try { if (window.hljs) document.querySelectorAll("pre.code code").forEach(function (el) { window.hljs.highlightElement(el); }); } catch (e) {}
+
+  // tabs
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+  function select(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+  }
+  tabs.forEach(function (t, i) {
+    t.tabIndex = i === 0 ? 0 : -1;
+    t.addEventListener("click", function () { select(t); });
+    t.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      var next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      select(next); next.focus();
+    });
+  });
+
+  // throughput calculator
+  var stages = [
+    { name: "adc", rate: 4000, workers: 1, fixed: true },
+    { name: "demod", rate: 20000, workers: 1 },
+    { name: "decoder", rate: 1500, workers: 3 },
+    { name: "datalink", rate: 60000, workers: 1 },
+    { name: "app", rate: 200000, workers: 1 }
+  ];
+  var calc = document.getElementById("calc");
+  var rows = stages.map(function (s, i) {
+    var row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML =
+      '<span class="name">' + s.name + '</span>' +
+      '<input type="number" min="1" step="100" id="rate-' + i + '" aria-label="' + s.name + ' frames per second per worker" value="' + s.rate + '">' +
+      '<input type="number" min="1" max="64" step="1" id="workers-' + i + '" aria-label="' + s.name + ' workers" value="' + s.workers + '"' + (s.fixed ? ' disabled title="sources have one worker"' : '') + '>' +
+      '<div class="bar"><i></i></div><span class="cap"></span>';
+    calc.appendChild(row);
+    row.querySelectorAll("input").forEach(function (inp) { inp.addEventListener("input", update); });
+    return row;
+  });
+  var result = document.createElement("div");
+  result.className = "result";
+  calc.appendChild(result);
+  function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
+  function update() {
+    var caps = rows.map(function (row) {
+      var r = Math.max(0, parseFloat(row.querySelector('[id^="rate-"]').value) || 0);
+      var w = Math.max(1, parseInt(row.querySelector('[id^="workers-"]').value, 10) || 1);
+      return { rate: r, workers: w, cap: r * w };
+    });
+    var max = Math.max.apply(null, caps.map(function (c) { return c.cap; })) || 1;
+    var min = Math.min.apply(null, caps.map(function (c) { return c.cap; }));
+    var limitIdx = caps.findIndex(function (c) { return c.cap === min; });
+    rows.forEach(function (row, i) {
+      row.querySelector(".bar i").style.width = (100 * Math.sqrt(caps[i].cap / max)).toFixed(1) + "%";
+      row.querySelector(".cap").textContent = fmt(caps[i].cap) + "/s";
+      row.classList.toggle("limit", i === limitIdx);
+    });
+    var src = caps[0].cap;
+    var needs = stages.slice(1).map(function (s, j) {
+      var c = caps[j + 1];
+      var n = c.rate > 0 ? Math.ceil(src / c.rate) : Infinity;
+      return n > c.workers ? s.name + " needs " + (isFinite(n) ? n : "more") + " workers" : null;
+    }).filter(Boolean);
+    result.innerHTML = "Chain throughput: <b>" + fmt(min) + " frames/s</b>, limited by <b>" + stages[limitIdx].name + "</b>. " +
+      (needs.length ? "To keep up with the source: " + needs.join(", ") + "." : "Every stage keeps up with the source.") +
+      " <span style=\"color:var(--muted)\">(bar length is on a square-root scale)</span>";
+  }
+  update();
+})();
+</script>
+</body>
+</html>
