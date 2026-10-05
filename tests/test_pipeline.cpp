@@ -184,6 +184,45 @@ void testControls() {
   CHECK((got == std::vector<int>{3, 12, 21}));
 }
 
+// Plain C++ values must not depend on std::variant's converting constructor,
+// which is ambiguous for int on MSVC in C++17 mode.
+void testControlValueTypes() {
+  enum class Mode { A = 0, B = 1 };
+  struct Typed : Block<int, int> {
+    Control<int>& i = control<int>("i", 0);
+    Control<double>& d = control<double>("d", 0.0);
+    Control<bool>& b = control<bool>("b", false);
+    Control<std::string>& s = control<std::string>("s", "x");
+    Control<Mode>& m = control<Mode>("m", Mode::A);
+    void process(int&& x, Emitter<int>& out) override { out.emit(x); }
+  };
+  Pipeline p("types");
+  auto src = p.source<Counter>("src", 1);
+  auto t = p.add<Typed>("t", src);
+  p.sinkFn("sink", t, [](int&&) {});
+  short sh = 7;
+  p.setControl("t.i", 60);
+  CHECK(std::get<std::int64_t>(p.getControl("t.i")) == 60);
+  p.setControl("t.i", sh);
+  p.setControl("t.i", 5L);
+  p.setControl("t.d", 2.5);
+  p.setControl("t.d", 3);  // int into a double control
+  CHECK(std::get<double>(p.getControl("t.d")) == 3.0);
+  p.setControl("t.d", 1.5f);
+  p.setControl("t.b", true);
+  CHECK(std::get<bool>(p.getControl("t.b")));
+  p.setControl("t.s", "hello");
+  CHECK(std::get<std::string>(p.getControl("t.s")) == "hello");
+  p.setControl("t.s", std::string("world"));
+  p.setControl("t.m", Mode::B);
+  CHECK(std::get<std::int64_t>(p.getControl("t.m")) == 1);
+  p.setControl("t.i", Value(std::int64_t{9}));
+  p.stage("t").setControl("i", 11);
+  CHECK(std::get<std::int64_t>(p.getControl("t.i")) == 11);
+  p.start();
+  p.wait();
+}
+
 void testControlsWhileRunning() {
   struct Probe : Block<int, int> {
     Control<double>& gain = control<double>("gain", 1.0, "", {0.0, 10.0});
@@ -398,6 +437,7 @@ int main() {
       {"unordered parallel", testUnorderedParallel},
       {"rate change + flush", testRateChangeAndFlush},
       {"controls", testControls},
+      {"control value types", testControlValueTypes},
       {"controls while running", testControlsWhileRunning},
       {"lambda stages", testLambdas},
       {"errors: skip", testErrorsSkip},

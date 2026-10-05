@@ -8,6 +8,7 @@
 #include "snapshot.hpp"
 #include "stage.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -288,6 +289,11 @@ class Pipeline {
   void setControl(const std::string& path, const Value& v) {
     auto [st, ctl] = split(path);
     stage(st).setControl(ctl, v);
+  }
+  /// Same, for a plain C++ value (int, double, bool, enum, string).
+  template <typename T, typename = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Value>>>
+  void setControl(const std::string& path, T&& v) {
+    setControl(path, makeValue(std::forward<T>(v)));
   }
   /// Same, parsing text according to the control type (handy for UIs / CLIs).
   void setControlFromString(const std::string& path, const std::string& text) {

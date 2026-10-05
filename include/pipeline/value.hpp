@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 
@@ -65,6 +66,23 @@ Value toValue(const T& v) {
   } else {
     static_assert(std::is_same_v<T, std::string>, "unsupported parameter type");
     return Value(v);
+  }
+}
+
+/// Builds a Value from any supported C++ value without relying on
+/// std::variant's converting constructor. That constructor is ambiguous for
+/// e.g. an int literal on standard libraries that do not implement P0608 in
+/// C++17 mode (MSVC), so the library's APIs go through this function.
+template <typename T>
+Value makeValue(T&& v) {
+  using D = std::decay_t<T>;
+  if constexpr (std::is_same_v<D, Value>) {
+    return std::forward<T>(v);
+  } else if constexpr (std::is_same_v<D, const char*> || std::is_same_v<D, char*> ||
+                       std::is_same_v<D, std::string_view>) {
+    return Value(std::string(v));
+  } else {
+    return toValue<D>(v);
   }
 }
 

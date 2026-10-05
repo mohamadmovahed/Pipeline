@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -50,16 +51,16 @@ struct StageOptions {
   std::size_t window = 0;           ///< max items held for reordering, 0 = auto
 
   StageOptions& parallel(std::size_t n) {
-    workers = maxWorkers = std::max<std::size_t>(1, n);
+    workers = maxWorkers = (std::max<std::size_t>)(1, n);
     return *this;
   }
   StageOptions& autoscale(std::size_t minWorkers, std::size_t maxW) {
-    workers = std::max<std::size_t>(1, minWorkers);
-    maxWorkers = std::max(workers, maxW);
+    workers = (std::max<std::size_t>)(1, minWorkers);
+    maxWorkers = (std::max)(workers, maxW);
     return *this;
   }
   StageOptions& queue(std::size_t capacity) {
-    queueCapacity = std::max<std::size_t>(1, capacity);
+    queueCapacity = (std::max<std::size_t>)(1, capacity);
     return *this;
   }
   StageOptions& unordered() {
@@ -87,8 +88,8 @@ class Stage {
   Stage(std::string name, StageKind kind, StageOptions o, Factory factory)
       : name_(std::move(name)), kind_(kind), opts_(o), factory_(std::move(factory)) {
     if (kind_ == StageKind::Source) opts_.workers = opts_.maxWorkers = 1;  // sources are sequential
-    opts_.workers = std::max<std::size_t>(1, opts_.workers);
-    opts_.maxWorkers = std::max(opts_.workers, opts_.maxWorkers);
+    opts_.workers = (std::max<std::size_t>)(1, opts_.workers);
+    opts_.maxWorkers = (std::max)(opts_.workers, opts_.maxWorkers);
     if (opts_.window == 0) opts_.window = 4 * opts_.maxWorkers + 4;
     std::lock_guard<std::mutex> lk(m_);
     for (std::size_t i = 0; i < opts_.workers; ++i) createReplica();
@@ -132,6 +133,12 @@ class Stage {
       c->request(v);  // the first replica validates; a throw changes nothing
     }
     overrides_[control] = v;
+  }
+
+  /// Same, for a plain C++ value: setControl("iterations", 12).
+  template <typename T, typename = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Value>>>
+  void setControl(const std::string& control, T&& v) {
+    setControl(control, makeValue(std::forward<T>(v)));
   }
 
   /// Parses `text` according to the control's type, then sets it.
@@ -354,7 +361,7 @@ class Stage {
 
   bool removeWorker(std::size_t minimum) {
     std::lock_guard<std::mutex> lk(m_);
-    if (!started_ || finalizing_ || active_ <= std::max<std::size_t>(1, minimum)) return false;
+    if (!started_ || finalizing_ || active_ <= (std::max<std::size_t>)(1, minimum)) return false;
     for (auto it = replicas_.rbegin(); it != replicas_.rend(); ++it) {
       if (!(*it)->retire && !(*it)->exited) {
         (*it)->retire = true;
@@ -369,15 +376,15 @@ class Stage {
   void updateRates(double dt) {
     if (dt <= 0) return;
     const std::uint64_t in = itemsIn_.load(), out = itemsOut_.load(), busy = busyNs_.load(), blocked = blockedNs_.load();
-    const double n = static_cast<double>(std::max<std::size_t>(1, active_.load()));
+    const double n = static_cast<double>((std::max<std::size_t>)(1, active_.load()));
     const double span = dt * 1e9 * n;
     std::lock_guard<std::mutex> lk(statsM_);
     const double a = haveRates_ ? 0.5 : 1.0;  // exponential smoothing
     auto ema = [a](double old, double now) { return old + a * (now - old); };
     inRate_ = ema(inRate_, static_cast<double>(in - lastIn_) / dt);
     outRate_ = ema(outRate_, static_cast<double>(out - lastOut_) / dt);
-    util_ = ema(util_, std::min(1.0, static_cast<double>(busy - lastBusy_) / span));
-    backpressure_ = ema(backpressure_, std::min(1.0, static_cast<double>(blocked - lastBlocked_) / span));
+    util_ = ema(util_, (std::min)(1.0, static_cast<double>(busy - lastBusy_) / span));
+    backpressure_ = ema(backpressure_, (std::min)(1.0, static_cast<double>(blocked - lastBlocked_) / span));
     lastIn_ = in;
     lastOut_ = out;
     lastBusy_ = busy;
@@ -457,7 +464,7 @@ class Stage {
       std::int64_t acc = std::get<std::int64_t>(vals.front());
       for (std::size_t i = 1; i < vals.size(); ++i) {
         std::int64_t v = std::get<std::int64_t>(vals[i]);
-        acc = agg == Aggregate::Sum ? acc + v : agg == Aggregate::Min ? std::min(acc, v) : std::max(acc, v);
+        acc = agg == Aggregate::Sum ? acc + v : agg == Aggregate::Min ? (std::min)(acc, v) : (std::max)(acc, v);
       }
       return Value(acc);
     }
@@ -465,8 +472,8 @@ class Stage {
     for (std::size_t i = 1; i < vals.size(); ++i) {
       double v = toDouble(vals[i]);
       acc = (agg == Aggregate::Sum || agg == Aggregate::Mean) ? acc + v
-            : agg == Aggregate::Min                           ? std::min(acc, v)
-                                                              : std::max(acc, v);
+            : agg == Aggregate::Min                           ? (std::min)(acc, v)
+                                                              : (std::max)(acc, v);
     }
     if (agg == Aggregate::Mean) acc /= static_cast<double>(vals.size());
     return Value(acc);
