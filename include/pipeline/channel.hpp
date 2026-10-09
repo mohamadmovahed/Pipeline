@@ -48,6 +48,36 @@ class Channel {
     return true;
   }
 
+  /// Non-blocking push. Returns false (and leaves `item` untouched) when the
+  /// queue is full, closed or aborted.
+  bool tryPush(T&& item) {
+    std::unique_lock<std::mutex> lk(m_);
+    if (closed_ || aborted_ || q_.size() >= capacity_) return false;
+    q_.push_back(std::move(item));
+    if (q_.size() > highWater_) highWater_ = q_.size();
+    lk.unlock();
+    notEmpty_.notify_one();
+    return true;
+  }
+
+  /// Like push() but gives up after `timeout` (item untouched on failure).
+  template <typename Rep, typename Period>
+  bool pushFor(T&& item, std::chrono::duration<Rep, Period> timeout) {
+    std::unique_lock<std::mutex> lk(m_);
+    if (!notFull_.wait_for(lk, timeout, [&] { return q_.size() < capacity_ || closed_ || aborted_; })) return false;
+    if (closed_ || aborted_) return false;
+    q_.push_back(std::move(item));
+    if (q_.size() > highWater_) highWater_ = q_.size();
+    lk.unlock();
+    notEmpty_.notify_one();
+    return true;
+  }
+
+  bool closed() const {
+    std::lock_guard<std::mutex> lk(m_);
+    return closed_ || aborted_;
+  }
+
   /// Blocks until an item is available. Returns nullopt once the channel is
   /// closed and drained, or aborted.
   std::optional<T> pop() {

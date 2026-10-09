@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -392,6 +394,114 @@ void testSumSurvivesRetirement() {
   CHECK(std::get<std::int64_t>(p.getMonitor("double.processed")) == received.load());
 }
 
+void testFeederEndOfStream() {
+  std::vector<int> got;
+  Pipeline p("feeder");
+  auto [port, feeder] = p.input<int>("in", 8);
+  auto dbl = p.add<SlowDouble>("double", port, opts().parallel(3));
+  p.sink<Collect>("sink", dbl, opts(), &got);
+  p.start();
+  for (int i = 0; i < 500; ++i) CHECK(feeder.push(i));  // blocking push: nothing dropped
+  feeder.close();                                      // end of stream
+  CHECK(p.waitFor(10s));
+  CHECK(p.state() == PipelineState::Finished);
+  CHECK(got.size() == 500);
+  bool inOrder = true;
+  for (std::size_t i = 0; i < got.size(); ++i) inOrder = inOrder && got[i] == static_cast<int>(2 * i);
+  CHECK(inOrder);
+  CHECK(!feeder.push(1));  // closed
+  CHECK(feeder.pushed() == 500 && feeder.dropped() == 0);
+}
+
+void testFeederStopDrainsAndTryPushDrops() {
+  std::atomic<int> received{0};
+  Pipeline p("feeder-stop");
+  auto in = p.input<int>("in", 4);
+  auto slow = p.map("slow", in.port, [](int&& x) {
+    std::this_thread::sleep_for(2ms);
+    return x;
+  }, opts().queue(2));
+  p.sinkFn("sink", slow, [&](int&&) { ++received; });
+  p.start();
+  int accepted = 0;
+  for (int i = 0; i < 200; ++i) accepted += in.feeder.tryPush(i) ? 1 : 0;  // never blocks
+  CHECK(in.feeder.dropped() > 0);
+  CHECK(static_cast<std::uint64_t>(accepted) + in.feeder.dropped() == 200);
+  p.stop();  // graceful: everything accepted is still delivered
+  CHECK(received.load() == accepted);
+  CHECK(!in.feeder.tryPush(1));
+  CHECK(std::get<std::int64_t>(p.getMonitor("in.dropped")) >= 0);
+}
+
+std::unique_ptr<Pipeline> makeCountingReceiver(const std::string& id, Feeder<int>& feeder,
+                                               std::atomic<int>* received) {
+  auto p = std::make_unique<Pipeline>(id);
+  auto in = p->input<int>("in", 16);
+  auto m = p->map("work", in.port, [](int&& x) { return x + 1; });
+  p->sinkFn("sink", m, [received](int&&) { ++*received; });
+  feeder = in.feeder;
+  return p;
+}
+
+void testPool() {
+  std::atomic<int> received{0};
+  std::mutex fm;
+  std::vector<std::string> finishedIds;
+  {
+    PipelinePool pool("rx", 20ms);
+    pool.onFinished([&](const std::string& id, const PipelineSnapshot& last) {
+      std::lock_guard<std::mutex> lk(fm);
+      finishedIds.push_back(id + ":" + toString(last.state));
+    });
+    Feeder<int> a, b;
+    pool.start("a", makeCountingReceiver("a", a, &received));
+    pool.start("b", makeCountingReceiver("b", b, &received));
+    Feeder<int> unused;
+    CHECK(throws<std::logic_error>([&] { pool.start("a", makeCountingReceiver("a", unused, &received)); }));
+    CHECK(!unused.push(1));  // its pipeline was destroyed unstarted: push fails instead of blocking
+    CHECK(pool.size() == 2);
+    for (int i = 0; i < 100; ++i) {
+      CHECK(a.push(i));
+      CHECK(b.push(i));
+    }
+    CHECK(throws<std::invalid_argument>([&] { pool.setControl("a", "in.nope", 1); }));
+    CHECK(!pool.setControl("zzz", "in.x", 1));
+
+    CHECK(pool.stop("a"));       // returns at once, drains in the background
+    CHECK(!pool.contains("a"));
+    Feeder<int> a2;              // id can be reused immediately
+    pool.start("a", makeCountingReceiver("a", a2, &received));
+    CHECK(a2.push(1));
+
+    b.close();                   // a receiver whose input ends is reaped by itself
+    for (int i = 0; i < 100 && pool.contains("b"); ++i) std::this_thread::sleep_for(10ms);
+    CHECK(!pool.contains("b"));
+
+    auto snap = pool.snapshot();
+    CHECK(snap.active.size() == 1 && snap.active[0].id == "a");
+    CHECK(pool.snapshotJson().find("\"id\":\"a\"") != std::string::npos);
+
+    pool.stopAll();
+    pool.waitAll();
+    CHECK(pool.size() == 0);
+    CHECK(received.load() == 201);
+    CHECK(pool.snapshot().finished == 3);
+  }
+  std::lock_guard<std::mutex> lk(fm);
+  CHECK(finishedIds.size() == 3);
+}
+
+void testPoolDestructorAborts() {
+  PipelinePool pool("dtor", 20ms);
+  for (int i = 0; i < 5; ++i) {
+    auto p = std::make_unique<Pipeline>("p");
+    auto src = p->source<Endless>("src");
+    p->sinkFn("sink", src, [](int&&) {});
+    pool.start("p" + std::to_string(i), std::move(p));
+  }
+  std::this_thread::sleep_for(30ms);
+}  // must not hang
+
 void testBuildErrors() {
   Pipeline p("build");
   auto src = p.source<Counter>("src", 1);
@@ -449,6 +559,10 @@ int main() {
       {"abort / stop / dtor", testAbortAndStop},
       {"autoscale", testAutoscale},
       {"sum monitors survive retirement", testSumSurvivesRetirement},
+      {"feeder: end of stream", testFeederEndOfStream},
+      {"feeder: stop drains, tryPush drops", testFeederStopDrainsAndTryPushDrops},
+      {"pool", testPool},
+      {"pool destructor", testPoolDestructorAborts},
       {"build errors", testBuildErrors},
       {"json", testJson},
       {"onUpdate", testOnUpdate},

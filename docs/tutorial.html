@@ -180,10 +180,11 @@ footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule);
     <li><a href="#ui"><span class="n">09</span>Connect a UI</a></li>
     <li><a href="#libraries"><span class="n">10</span>Wrap existing libraries</a></li>
     <li><a href="#lifecycle"><span class="n">11</span>Start, stop, errors</a></li>
+    <li><a href="#ondemand"><span class="n">12</span>Receivers on demand</a></li>
     <li class="group">Reference</li>
-    <li><a href="#performance"><span class="n">12</span>Performance tips</a></li>
-    <li><a href="#api"><span class="n">13</span>API cheat sheet</a></li>
-    <li><a href="#limits"><span class="n">14</span>Limits &amp; FAQ</a></li>
+    <li><a href="#performance"><span class="n">13</span>Performance tips</a></li>
+    <li><a href="#api"><span class="n">14</span>API cheat sheet</a></li>
+    <li><a href="#limits"><span class="n">15</span>Limits &amp; FAQ</a></li>
   </ol>
 </nav>
 
@@ -685,8 +686,101 @@ rx.add&lt;DataLink&gt;(&quot;datalink&quot;, bits, opts().onError(pipeline::Erro
 <p>With either policy the stage's <code>errors</code> counter and <code>lastError</code> message appear in the snapshot. With <code>Stop</code>, <code>snapshot().error</code> holds <code>"stage: message"</code> of the first fatal error.</p>
 </section>
 
+<section id="ondemand">
+<h2><span class="n">12</span>Receivers started on demand</h2>
+<p>A multichannel receiver often watches a wideband capture and runs a receiver chain only while a channel is active. Two pieces make this simple: a <strong>push input</strong>, so your own code can feed a running pipeline, and a <strong>pipeline pool</strong>, which starts receivers by id and stops them without blocking the caller.</p>
+<h3>Push input: feed a pipeline from your code</h3>
+<p><code>input&lt;T&gt;()</code> creates a source stage plus a <code>Feeder&lt;T&gt;</code> handle. The feeder is cheap to copy, thread safe, and stays valid after the pipeline is gone: pushes then simply return <code>false</code>.</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">Pipeline rx(&quot;ch7&quot;);
+auto [port, feeder] = rx.input&lt;ChannelBlock&gt;(&quot;in&quot;, 32);   // 32 = input queue size
+auto soft = rx.add&lt;Demodulator&gt;(&quot;demod&quot;, port);
+// ... rest of the chain ...
+rx.start();
+
+feeder.push(std::move(blk));      // waits while the input is full
+feeder.tryPush(std::move(blk));   // never waits; false + counted drop if full
+feeder.close();                   // end of burst: drain, flush, finish</code></pre>
+<div class="tablewrap"><table>
+  <thead><tr><th>Call</th><th>When the input queue is full</th><th>Use from</th></tr></thead>
+  <tbody>
+    <tr><td><code>push(x)</code></td><td>waits for room</td><td>a thread that may slow down (file playback, tests)</td></tr>
+    <tr><td><code>tryPush(x)</code></td><td>returns <code>false</code>, counts a drop</td><td>a real-time thread that serves many channels</td></tr>
+    <tr><td><code>pushFor(x, timeout)</code></td><td>waits up to <code>timeout</code></td><td>a compromise between the two</td></tr>
+  </tbody>
+</table></div>
+<p>The input stage publishes <code>backlog</code> and <code>dropped</code> monitors. A graceful <code>stop()</code> processes what is still queued in the input before the chain finishes.</p>
+<h3>Pipeline pool: many receivers that come and go</h3>
+<pre class="code" data-lang="cpp"><code class="language-cpp">std::unique_ptr&lt;pipeline::Pipeline&gt; makeReceiver(int channel, pipeline::Feeder&lt;ChannelBlock&gt;&amp; feeder) {
+  auto rx = std::make_unique&lt;pipeline::Pipeline&gt;(&quot;ch&quot; + std::to_string(channel));
+  auto in   = rx-&gt;input&lt;ChannelBlock&gt;(&quot;in&quot;, 32);
+  auto soft = rx-&gt;add&lt;Demodulator&gt;(&quot;demod&quot;, in.port);
+  auto bits = rx-&gt;add&lt;Decoder&gt;(&quot;decoder&quot;, soft, pipeline::opts().autoscale(1, 4));
+  auto pkts = rx-&gt;add&lt;DataLink&gt;(&quot;datalink&quot;, bits);
+  rx-&gt;sink&lt;Output&gt;(&quot;output&quot;, pkts);
+  feeder = in.feeder;      // hand the input to the caller
+  return rx;               // not started: the pool starts it
+}</code></pre>
+<pre class="code" data-lang="cpp"><code class="language-cpp">pipeline::PipelinePool pool(&quot;receivers&quot;);
+pool.onFinished([](const std::string&amp; id, const pipeline::PipelineSnapshot&amp; last) {
+  log(&quot;%s done: %s packets&quot;, id.c_str(), toString(last.stage(&quot;datalink&quot;)-&gt;monitors[0].value).c_str());
+});
+
+// channel 7 became active
+pipeline::Feeder&lt;ChannelBlock&gt; feeder;
+pool.start(&quot;ch7&quot;, makeReceiver(7, feeder));   // builds and starts; returns immediately
+feeder.tryPush(std::move(blk));               // feed it from the wideband thread
+
+// channel 7 went quiet
+pool.stop(&quot;ch7&quot;);    // returns at once; drains and flushes in the background
+                     // &quot;ch7&quot; can be started again right away
+
+pool.setControl(&quot;ch3&quot;, &quot;decoder.iterations&quot;, 12);   // talk to one receiver
+std::string ui = pool.snapshotJson();               // every running receiver, for the UI
+
+pool.stopAll();      // shutdown
+pool.waitAll();</code></pre>
+<ul>
+  <li><code>start(id, pipeline)</code> throws <code>std::logic_error</code> if <code>id</code> is already running.</li>
+  <li><code>stop(id)</code> and <code>abort(id)</code> never block. A background thread joins finished receivers and calls <code>onFinished</code> with the last snapshot.</li>
+  <li>A receiver that ends by itself (its feeder was closed, or a fatal error) is removed from the pool automatically; its feeder's pushes then return <code>false</code>, which tells the caller to restart it if needed.</li>
+  <li>The id is free again as soon as <code>stop()</code> returns, even while the old receiver is still draining, so a channel that flickers off and on gets a new receiver immediately.</li>
+</ul>
+<h3>Putting it together: the dispatcher</h3>
+<p>The front end is an ordinary pipeline (<code>sdr &rarr; channelizer &rarr; dispatcher</code>). The dispatcher is a sink that detects activity and manages the pool. Detection uses hysteresis so that a receiver is not started and stopped on every noisy block:</p>
+<pre class="code" data-lang="cpp"><code class="language-cpp">class Dispatcher : public pipeline::Sink&lt;ChannelizedBlock&gt; {   // runs on 1 worker: it has per-channel state
+ public:
+  explicit Dispatcher(pipeline::PipelinePool* pool) : pool_(pool) {}
+
+  void consume(ChannelizedBlock&amp;&amp; in) override {
+    for (int c = 0; c &lt; static_cast&lt;int&gt;(in.channel.size()); ++c) {
+      ChannelState&amp; st = state_[c];
+      st.above = in.powerDb[c] &gt; onDb_.get()  ? st.above + 1 : 0;   // TODO: your detector
+      st.below = in.powerDb[c] &lt; offDb_.get() ? st.below + 1 : 0;
+
+      if (!st.running &amp;&amp; st.above &gt;= attack_.get()) {               // channel came up
+        pool_-&gt;start(&quot;ch&quot; + std::to_string(c), makeReceiver(c, st.feeder));
+        st.running = true;
+      }
+      if (st.running &amp;&amp; st.below &gt;= hang_.get()) {                  // channel went quiet
+        pool_-&gt;stop(&quot;ch&quot; + std::to_string(c));
+        st.running = false;
+      }
+      if (st.running) st.feeder.tryPush(ChannelBlock{c, in.seq, std::move(in.channel[c])});
+    }
+  }
+  void flush() override {                                           // front end stopping
+    for (auto&amp; [c, st] : state_) if (st.running) pool_-&gt;stop(&quot;ch&quot; + std::to_string(c));
+  }
+  // ... state_ (std::map&lt;int, ChannelState&gt;), pool_, and the controls on_threshold,
+  //     off_threshold, attack_blocks, hang_blocks: see examples/multichannel_receiver.cpp
+};</code></pre>
+<div class="callout"><p><strong>Settings for future receivers.</strong> Controls set on running receivers do not reach receivers started later. Keep the UI's current values in one place and apply them in <code>makeReceiver()</code> before the pool starts the pipeline. The example's <code>ReceiverDefaults</code> class does this.</p></div>
+<p>The complete template is <code>examples/multichannel_receiver.cpp</code>. It simulates 8 channels that switch on and off, starts and stops one receiver per active channel, prints a dashboard every second and changes receiver settings while running. All DSP steps are stubs marked <code>TODO(dsp)</code>.</p>
+<div class="callout warn"><p><strong>Threads per receiver.</strong> Every pipeline has one thread per worker plus a supervisor thread, so a 5-stage receiver uses at least 6 threads. That is fine for tens of simultaneous channels. For hundreds, give each receiver fewer stages (combine cheap steps into one block) and keep <code>autoscale</code> maxima small.</p></div>
+</section>
+
 <section id="performance">
-<h2><span class="n">12</span>Performance tips</h2>
+<h2><span class="n">13</span>Performance tips</h2>
 <ul>
   <li><strong>Make items big enough.</strong> Passing one item through a queue costs a few microseconds (measured 2&ndash;8&nbsp;&micro;s per item on a 4-core VM). Pass frames, codewords or blocks of 1k&ndash;10k samples, never single samples. A good item takes at least 50&ndash;100&nbsp;&micro;s to process.</li>
   <li><strong>Move, don't copy.</strong> Take the input by <code>In&amp;&amp;</code>, modify it in place where you can and <code>emit(std::move(...))</code> it.</li>
@@ -698,7 +792,7 @@ rx.add&lt;DataLink&gt;(&quot;datalink&quot;, bits, opts().onError(pipeline::Erro
 </section>
 
 <section id="api">
-<h2><span class="n">13</span>API cheat sheet</h2>
+<h2><span class="n">14</span>API cheat sheet</h2>
 <div class="tablewrap"><table>
   <thead><tr><th>Call</th><th>Purpose</th></tr></thead>
   <tbody>
@@ -721,28 +815,36 @@ rx.add&lt;DataLink&gt;(&quot;datalink&quot;, bits, opts().onError(pipeline::Erro
     <tr><td><code>ctl.get() / ctl.set(v) / ctl.onChange(fn)</code></td><td>Use a control inside the block</td></tr>
     <tr><td><code>mon = v; mon += d; ++mon;</code></td><td>Update a monitor</td></tr>
     <tr><td><code>replicaIndex() / stopRequested()</code></td><td>Inside a block</td></tr>
+    <tr><td><code>auto [port, feeder] = rx.input&lt;T&gt;(name, capacity)</code></td><td>Source fed from your code</td></tr>
+    <tr><td><code>feeder.push / tryPush / pushFor / close</code></td><td>Feed or end the input</td></tr>
+    <tr><td><code>rx.requestStop() / requestAbort() / done()</code></td><td>Non-blocking stop and status</td></tr>
+    <tr><td><code>PipelinePool pool(name)</code></td><td>Receivers that come and go</td></tr>
+    <tr><td><code>pool.start(id, std::move(p)) / stop(id) / abort(id)</code></td><td>Start, stop in the background</td></tr>
+    <tr><td><code>pool.get(id) / ids() / setControl(id, path, v)</code></td><td>Reach a running receiver</td></tr>
+    <tr><td><code>pool.snapshot() / snapshotJson() / onFinished(fn)</code></td><td>Monitoring</td></tr>
+    <tr><td><code>pool.stopAll() / waitAll()</code></td><td>Shutdown</td></tr>
   </tbody>
 </table></div>
-<p>Headers: <code>pipeline/pipeline.hpp</code> includes everything. The files are <code>block.hpp</code> (blocks, emitter), <code>parameters.hpp</code> (controls, monitors), <code>stage.hpp</code> (stage engine, options), <code>graph.hpp</code> (<code>Pipeline</code>), <code>channel.hpp</code> (bounded queue), <code>snapshot.hpp</code> and <code>json.hpp</code>.</p>
+<p>Headers: <code>pipeline/pipeline.hpp</code> includes everything. The files are <code>block.hpp</code> (blocks, emitter), <code>parameters.hpp</code> (controls, monitors), <code>stage.hpp</code> (stage engine, options), <code>graph.hpp</code> (<code>Pipeline</code>), <code>channel.hpp</code> (bounded queue), <code>feeder.hpp</code> (push inputs), <code>pool.hpp</code> (<code>PipelinePool</code>), <code>snapshot.hpp</code> and <code>json.hpp</code>.</p>
 </section>
 
 <section id="limits">
-<h2><span class="n">14</span>Limits and FAQ</h2>
+<h2><span class="n">15</span>Limits and FAQ</h2>
 <h3>Can one output feed two stages?</h3>
 <p>No. Each output has exactly one consumer, so the graph is a chain. To fan out, consume both paths in one block, or end the chain in a sink that pushes into a second pipeline's source.</p>
 <h3>Can a source run in parallel?</h3>
 <p>No. Sources always have one worker, because their order defines the sequence numbers. Make the source cheap (read and forward) and move work into the next stage.</p>
 <h3>Can I restart a pipeline?</h3>
-<p>A pipeline runs once. Build a new one to run again; building is cheap.</p>
+<p>A pipeline runs once. Build a new one to run again; building is cheap. For receivers that start and stop repeatedly, let a <code>PipelinePool</code> do it (<a href="#ondemand">section 12</a>).</p>
 <h3>What happens to a block's state when a worker is retired?</h3>
 <p>Its <code>flush()</code> is called and its outputs are sent on, then the instance is destroyed. This is one more reason to keep parallel blocks stateless between items.</p>
 <h3>Which thread calls what?</h3>
 <p>Each worker thread calls <code>onStart</code>, <code>process</code>/<code>produce</code>/<code>consume</code>, <code>onChange</code> callbacks, <code>flush</code> and <code>onStop</code> for its own block instance. The supervisor thread calls <code>onUpdate</code>. Your UI thread calls <code>snapshot</code> and <code>setControl</code>.</p>
 <h3>Where is a complete example?</h3>
-<p><code>examples/receiver_chain.cpp</code> runs a simulated BPSK link through tx simulator, demodulator, autoscaled decoder, data link and application, prints a dashboard every second and changes controls while running. <code>examples/quickstart.cpp</code> is the smallest useful program. <code>tests/test_pipeline.cpp</code> shows every feature in isolation.</p>
+<p><code>examples/receiver_chain.cpp</code> runs a simulated BPSK link through tx simulator, demodulator, autoscaled decoder, data link and application, prints a dashboard every second and changes controls while running. <code>examples/multichannel_receiver.cpp</code> starts one receiver per active channel of a wideband capture. <code>examples/quickstart.cpp</code> is the smallest useful program. <code>tests/test_pipeline.cpp</code> shows every feature in isolation.</p>
 </section>
 
-<footer>pipeline 1.0 &middot; header-only C++17 &middot; MIT licence</footer>
+<footer>pipeline 1.1 &middot; header-only C++17 &middot; MIT licence</footer>
 </main>
 </div>
 

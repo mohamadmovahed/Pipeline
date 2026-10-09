@@ -10,13 +10,15 @@
 
 #include "block.hpp"
 #include "channel.hpp"
+#include "feeder.hpp"
 #include "graph.hpp"
 #include "json.hpp"
 #include "parameters.hpp"
+#include "pool.hpp"
 #include "snapshot.hpp"
 #include "stage.hpp"
 #include "value.hpp"
 
 #define PIPELINE_VERSION_MAJOR 1
-#define PIPELINE_VERSION_MINOR 0
+#define PIPELINE_VERSION_MINOR 1
 #define PIPELINE_VERSION_PATCH 0

@@ -55,7 +55,7 @@ struct StageSnapshot {
   std::size_t workers = 0;     // active workers
   std::size_t minWorkers = 0;  // autoscaler lower bound
   std::size_t maxWorkers = 0;  // autoscaler upper bound
-  std::uint64_t itemsIn = 0;   // for sources: number of produce() calls
+  std::uint64_t itemsIn = 0;   // for sources: items produced
   std::uint64_t itemsOut = 0;
   std::uint64_t errors = 0;
   double inRate = 0;        // items / s

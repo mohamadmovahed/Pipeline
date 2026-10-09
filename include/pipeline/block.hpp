@@ -108,6 +108,11 @@ class Source : public BlockBase {
 
   /// Produces the next chunk of data. Return false at end of stream.
   virtual bool produce(Emitter<Out>& out) = 0;
+
+  /// By default a graceful stop() ends the source right away. A source that
+  /// buffers data internally (e.g. a push input) returns true and keeps being
+  /// called after the stop request until its produce() returns false.
+  virtual bool drainOnStop() const { return false; }
 };
 
 /// The end of a chain (application, file writer, network, ...).

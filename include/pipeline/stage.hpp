@@ -542,7 +542,8 @@ class SourceStage final : public Stage {
  protected:
   void run(Replica& r) override {
     auto& src = static_cast<Source<Out>&>(*r.block);
-    while (!stop_ && !aborted_) {
+    while (!aborted_) {
+      if (stop_ && !src.drainOnStop()) break;
       beforeItem(r);
       Emitter<Out> em;
       bool more = true;
@@ -550,7 +551,7 @@ class SourceStage final : public Stage {
       guarded([&] { more = src.produce(em); });
       const auto t1 = nowNs();
       busyNs_ += t1 - t0;
-      itemsIn_.fetch_add(1);
+      itemsIn_.fetch_add(em.size());
       const bool ok = port_.pushAll(em.take());
       blockedNs_ += nowNs() - t1;
       if (!ok || !more) break;

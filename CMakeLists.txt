@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(pipeline VERSION 1.0.0 LANGUAGES CXX
+project(pipeline VERSION 1.1.0 LANGUAGES CXX
         DESCRIPTION "Header-only C++17 library for pipelined, multi-threaded processing chains")
 
 # Build examples/tests only when this is the top-level project.

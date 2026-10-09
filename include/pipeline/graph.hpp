@@ -4,6 +4,7 @@
 #pragma once
 
 #include "block.hpp"
+#include "feeder.hpp"
 #include "json.hpp"
 #include "snapshot.hpp"
 #include "stage.hpp"
@@ -98,6 +99,12 @@ class FnSink final : public Sink<In> {
 
 }  // namespace detail
 
+template <typename T>
+struct Input {
+  Port<T> port;      ///< connect the first processing stage here
+  Feeder<T> feeder;  ///< push data into the pipeline with this
+};
+
 class Pipeline {
  public:
   using UpdateFn = std::function<void(const PipelineSnapshot&)>;
@@ -152,6 +159,16 @@ class Pipeline {
                          std::make_unique<detail::SinkStage<In>>(name, o, factory<B>(std::forward<Args>(args)...)));
   }
 
+  /// A source fed from your own code instead of a Source class:
+  ///   auto [port, feeder] = rx.input<IqBlock>("in", 32);
+  /// `capacity` is the size of the queue between the feeder and the pipeline.
+  template <typename T>
+  Input<T> input(const std::string& name, std::size_t capacity = 64) {
+    auto state = std::make_shared<detail::FeedState<T>>(capacity);
+    Port<T> port = source<detail::PushSource<T>>(name, state);
+    return Input<T>{port, Feeder<T>(state)};
+  }
+
   // Function-based stages: wrap existing processing-library calls without
   // writing a class. The callable is copied for every replica.
 
@@ -200,18 +217,36 @@ class Pipeline {
   /// Graceful stop: sources stop producing, everything in flight is processed
   /// and flushed, then threads are joined.
   void stop() {
+    requestStop();
+    wait();
+  }
+
+  /// Non-blocking version of stop(): asks the sources to stop and returns.
+  /// Use done() / waitFor() / wait() to find out when the drain is complete.
+  void requestStop() {
     if (state_ == PipelineState::Idle) return;
-    if (state_ == PipelineState::Running) state_ = PipelineState::Stopping;
+    auto expected = PipelineState::Running;
+    state_.compare_exchange_strong(expected, PipelineState::Stopping);
     for (auto& s : stages_)
       if (s->kind() == StageKind::Source) s->requestStop();
-    wait();
+  }
+
+  /// Non-blocking version of abort().
+  void requestAbort() {
+    if (state_ == PipelineState::Idle) return;
+    aborted_ = true;
+    for (auto& s : stages_) s->abort();
+  }
+
+  /// True once every stage has finished (threads may still need wait() to join).
+  bool done() const {
+    std::lock_guard<std::mutex> lk(m_);
+    return state_ != PipelineState::Idle && finished_ == stages_.size();
   }
 
   /// Immediate stop: queued data is dropped, then threads are joined.
   void abort() {
-    if (state_ == PipelineState::Idle) return;
-    aborted_ = true;
-    for (auto& s : stages_) s->abort();
+    requestAbort();
     wait();
   }
 
