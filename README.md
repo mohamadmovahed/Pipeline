@@ -17,6 +17,9 @@ adc ──▶ demod ──▶ decoder ×N ──▶ datalink ──▶ app
 * **Controls and monitors**: blocks declare typed, range-checked parameters that a UI can
   change while running, and values it can display. `snapshot()` / `snapshotJson()` give the
   whole state (rates, utilization, queue fill, workers, parameters) for any UI toolkit.
+* **Receivers on demand**: `rx.input<T>()` gives a `Feeder` to push data into a running
+  pipeline; `PipelinePool` starts and stops pipelines by id without blocking the caller,
+  e.g. one receiver chain per active channel of a wideband capture.
 * **Wrap existing code**: lambdas (`map`, `blockFn`, `sourceFn`, `sinkFn`) turn library calls into stages.
 
 **Tutorial:** open [`docs/tutorial.html`](docs/tutorial.html) in a browser.
@@ -68,6 +71,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ./build/examples/receiver_chain --seconds 9     # live dashboard of a simulated receiver
+./build/examples/multichannel_receiver           # one receiver started per active channel
 ./build/examples/quickstart
 ```
 
@@ -75,8 +79,9 @@ ctest --test-dir build --output-on-failure
 |------|---------|
 | `include/pipeline/` | the library (`pipeline.hpp` includes everything) |
 | `examples/receiver_chain.cpp` | TX simulator → demodulator → autoscaled decoder → data link → app, with a console UI |
+| `examples/multichannel_receiver.cpp` | wideband front end that starts/stops one receiver per active channel (DSP stubbed) |
 | `examples/quickstart.cpp` | smallest useful program |
-| `tests/test_pipeline.cpp` | dependency-free tests (ordering, rates, controls, autoscaling, errors, shutdown) |
+| `tests/test_pipeline.cpp` | dependency-free tests (ordering, rates, controls, autoscaling, errors, shutdown, feeders, pool) |
 | `docs/tutorial.html` | the tutorial |
 
 Requires a C++17 compiler and CMake 3.16+. No other dependencies. MIT licence.
