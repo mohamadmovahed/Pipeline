@@ -7,13 +7,15 @@
 // and without unbounded memory growth.
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <mutex>
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace pipeline {
 
@@ -28,10 +30,75 @@ struct Packet {
 
 enum class PopStatus { Item, Timeout, Closed };
 
+namespace detail {
+
+/// FIFO on a circular buffer of slots that never shrinks. It grows by doubling
+/// (up to `limit` slots) only while it is full, so once a queue has reached
+/// its high-water mark, push and pop never allocate again. Not thread safe:
+/// Channel guards it with its mutex.
+template <typename T>
+class RingQueue {
+ public:
+  /// An empty queue without storage (used to take over another queue's items).
+  RingQueue() = default;
+  /// Preallocates min(limit, 16) slots.
+  explicit RingQueue(std::size_t limit) : limit_(limit ? limit : 1) {
+    slots_.resize((std::min)(limit_, kInitialSlots));
+  }
+
+  bool empty() const { return count_ == 0; }
+  std::size_t size() const { return count_; }
+  /// Number of slots allocated so far (<= limit).
+  std::size_t allocated() const { return slots_.size(); }
+
+  /// Appends an item. The caller guarantees size() < limit.
+  void push_back(T&& v) {
+    if (count_ == slots_.size()) grow();
+    slots_[index(count_)].emplace(std::move(v));
+    ++count_;
+  }
+
+  T& front() { return *slots_[head_]; }
+
+  void pop_front() {
+    slots_[head_].reset();
+    head_ = index(1);
+    --count_;
+  }
+
+  /// Exchanges the contents (and the storage) with `other`.
+  void swap(RingQueue& other) noexcept {
+    slots_.swap(other.slots_);
+    std::swap(head_, other.head_);
+    std::swap(count_, other.count_);
+    std::swap(limit_, other.limit_);
+  }
+
+ private:
+  static constexpr std::size_t kInitialSlots = 16;
+
+  std::size_t index(std::size_t offset) const { return (head_ + offset) % slots_.size(); }
+
+  void grow() {
+    const std::size_t want = slots_.empty() ? 1 : 2 * slots_.size();
+    std::vector<std::optional<T>> bigger((std::max)(count_ + 1, (std::min)(limit_, want)));
+    for (std::size_t i = 0; i < count_; ++i) bigger[i].emplace(std::move(*slots_[index(i)]));
+    slots_.swap(bigger);
+    head_ = 0;
+  }
+
+  std::vector<std::optional<T>> slots_;
+  std::size_t head_ = 0;
+  std::size_t count_ = 0;
+  std::size_t limit_ = 1;
+};
+
+}  // namespace detail
+
 template <typename T>
 class Channel {
  public:
-  explicit Channel(std::size_t capacity) : capacity_(capacity ? capacity : 1) {}
+  explicit Channel(std::size_t capacity) : capacity_(capacity ? capacity : 1), q_(capacity_) {}
   Channel(const Channel&) = delete;
   Channel& operator=(const Channel&) = delete;
 
@@ -108,7 +175,7 @@ class Channel {
 
   /// Emergency stop: wakes everybody and drops queued items.
   void abort() {
-    std::deque<T> drop;
+    detail::RingQueue<T> drop;  // takes the items; destroyed outside the lock
     {
       std::lock_guard<std::mutex> lk(m_);
       aborted_ = true;
@@ -127,6 +194,11 @@ class Channel {
     std::lock_guard<std::mutex> lk(m_);
     return highWater_;
   }
+  /// Slots allocated by the queue so far (grows by doubling up to capacity()).
+  std::size_t allocatedSlots() const {
+    std::lock_guard<std::mutex> lk(m_);
+    return q_.allocated();
+  }
 
  private:
   std::optional<T> takeLocked(std::unique_lock<std::mutex>& lk) {
@@ -142,7 +214,7 @@ class Channel {
   mutable std::mutex m_;
   std::condition_variable notEmpty_;
   std::condition_variable notFull_;
-  std::deque<T> q_;
+  detail::RingQueue<T> q_;  // circular buffer: no allocation per push
   std::size_t highWater_ = 0;
   bool closed_ = false;
   bool aborted_ = false;

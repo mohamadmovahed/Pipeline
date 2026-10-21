@@ -17,6 +17,10 @@ class Stage;
 /// Collects the outputs a block produces for one input. A block may emit any
 /// number of items per input (0 for decimation / dropped frames, many for
 /// interpolation / segmentation); the stage forwards them downstream.
+///
+/// Each worker keeps one Emitter for its whole life and clears it after every
+/// call, so in steady state emitting does not allocate (the buffer keeps its
+/// capacity).
 template <typename T>
 class Emitter {
  public:
@@ -29,8 +33,15 @@ class Emitter {
   std::size_t size() const { return buf_.size(); }
   bool empty() const { return buf_.empty(); }
 
-  /// Hands the collected items to the stage (internal use).
-  std::vector<T> take() { return std::move(buf_); }
+  /// Hands the collected items to the stage (internal use). Leaves the
+  /// emitter empty and without capacity.
+  std::vector<T> take() { return std::exchange(buf_, std::vector<T>{}); }
+
+  /// The collected items, for the stage to move from (internal use).
+  std::vector<T>& items() { return buf_; }
+
+  /// Destroys the collected items but keeps the capacity (internal use).
+  void clear() { buf_.clear(); }
 
  private:
   std::vector<T> buf_;

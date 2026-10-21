@@ -1,6 +1,8 @@
 // Tests for the pipeline library. Dependency free: run the binary or `ctest`.
 #include <pipeline/pipeline.hpp>
 
+#include "alloc_counter.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -543,6 +545,149 @@ void testOnUpdate() {
   CHECK(calls.load() >= 3);
 }
 
+void testChannelRing() {
+  // FIFO order across many wrap-arounds of a small queue.
+  Channel<int> c(5);
+  int next = 0, expect = 0;
+  bool fifo = true;
+  for (int round = 0; round < 1000; ++round) {
+    const int n = 1 + round % 5;
+    for (int i = 0; i < n; ++i) CHECK(c.tryPush(int(next++)));
+    for (int i = 0; i < n; ++i) {
+      std::optional<int> v;
+      CHECK(c.popFor(v, 0ms) == PopStatus::Item);
+      fifo = fifo && v && *v == expect++;
+    }
+  }
+  CHECK(fifo);
+  CHECK(c.allocatedSlots() == 5);  // never more than the capacity
+
+  // Full: tryPush fails and leaves the item untouched.
+  Channel<std::unique_ptr<int>> f(2);
+  CHECK(f.tryPush(std::make_unique<int>(1)));
+  CHECK(f.tryPush(std::make_unique<int>(2)));
+  auto keep = std::make_unique<int>(3);
+  CHECK(!f.tryPush(std::move(keep)));
+  CHECK(keep && *keep == 3);
+  CHECK(!f.pushFor(std::move(keep), 1ms));
+  CHECK(keep && *keep == 3);
+  CHECK(*f.pop().value() == 1);  // pop/push wraps the 2-slot ring
+  CHECK(f.tryPush(std::move(keep)));
+  CHECK(*f.pop().value() == 2);
+  CHECK(*f.pop().value() == 3);
+
+  // Large capacity: storage grows by doubling, preserving order, up to the capacity.
+  Channel<int> g(100);
+  CHECK(g.allocatedSlots() == 16);
+  for (int i = 0; i < 10; ++i) g.push(int(i));
+  for (int i = 0; i < 10; ++i) CHECK(g.pop().value() == i);  // head is now mid-buffer
+  for (int i = 0; i < 100; ++i) CHECK(g.tryPush(int(i)));
+  CHECK(!g.tryPush(100));
+  CHECK(g.allocatedSlots() == 100);
+  CHECK(g.highWater() == 100);
+  bool ordered = true;
+  for (int i = 0; i < 100; ++i) ordered = ordered && g.pop().value() == i;
+  CHECK(ordered);
+
+  // close(): drains, then reports Closed. abort(): destroys queued items.
+  Channel<int> cl(4);
+  cl.push(7);
+  cl.close();
+  CHECK(!cl.tryPush(8));
+  CHECK(cl.pop().value() == 7);
+  std::optional<int> none;
+  CHECK(cl.popFor(none, 1ms) == PopStatus::Closed);
+  auto token = std::make_shared<int>(0);
+  Channel<std::shared_ptr<int>> ab(4);
+  ab.push(std::shared_ptr<int>(token));
+  ab.push(std::shared_ptr<int>(token));
+  CHECK(token.use_count() == 3);
+  ab.abort();
+  CHECK(token.use_count() == 1);
+  CHECK(ab.size() == 0);
+  CHECK(!ab.tryPush(std::shared_ptr<int>(token)));
+}
+
+void testChannelThreads() {
+  // One producer, one consumer, tiny queue: every item arrives once, in order.
+  Channel<int> c(3);
+  constexpr int kN = 50000;
+  std::thread prod([&] {
+    for (int i = 0; i < kN; ++i) c.push(int(i));
+    c.close();
+  });
+  int expect = 0;
+  bool ok = true;
+  while (auto v = c.pop()) ok = ok && *v == expect++;
+  prod.join();
+  CHECK(ok);
+  CHECK(expect == kN);
+}
+
+void testEmitterReuse() {
+  Emitter<int> em;
+  em.emit(1);
+  em.emit(2);
+  CHECK(em.size() == 2);
+  CHECK(em.items()[1] == 2);
+  const std::size_t cap = em.items().capacity();
+  em.clear();
+  CHECK(em.empty() && em.items().capacity() == cap);
+  em.emit(3);
+  std::vector<int> taken = em.take();  // the old API still works
+  CHECK(taken.size() == 1 && taken[0] == 3 && em.empty());
+}
+
+// The steady-state path of single-worker stages (source, ordered and unordered
+// blocks, sink) must not allocate: Emitter buffers are reused, single-worker
+// stages skip the reorder map, and channels use a circular buffer.
+void testNoSteadyStateAllocations() {
+  constexpr int kWarmup = 2000, kMeasure = 20000;
+  std::atomic<std::uint64_t> atStart{0}, atEnd{0};
+  Pipeline p("no-alloc");
+  int n = 0;
+  auto src = p.sourceFn<int>("src", [&n](Emitter<int>& out) {
+    out.emit(n++);
+    return n < kWarmup + kMeasure;
+  });
+  auto a = p.map("ordered", src, [](int&& x) { return x + 1; }, opts().queue(4));
+  auto b = p.blockFn<int>("unordered", a, [](int&& x, Emitter<int>& out) {
+    out.emit(x);
+    if (x % 2) out.emit(-x);  // variable fan-out reuses the same buffer
+  }, opts().queue(4).unordered());
+  int seen = 0;
+  p.sinkFn("sink", b, [&](int&& x) {
+    if (x < 0) return;
+    ++seen;
+    if (seen == kWarmup) atStart = allocationCount();
+    if (seen == kWarmup + kMeasure) atEnd = allocationCount();
+  }, opts().queue(4));
+  p.start();
+  p.wait();
+  CHECK(p.state() == PipelineState::Finished);
+  CHECK(seen == kWarmup + kMeasure);
+  const std::uint64_t allocs = atEnd.load() - atStart.load();
+  if (allocs != 0) std::cerr << "  " << allocs << " allocations in " << kMeasure << " items\n";
+  CHECK(allocs == 0);
+}
+
+// A stage with parallel(1) but the default ordered mode, and a stage that can
+// autoscale (so it keeps the reorder buffer), both keep their order.
+void testSingleWorkerOrderedBypass() {
+  std::vector<int> got;
+  Pipeline p("bypass");
+  auto src = p.source<Counter>("src", 3000);
+  auto one = p.map("one", src, [](int&& x) { return x; });
+  auto many = p.add<SlowDouble>("many", one, opts().autoscale(1, 3).queue(8));
+  p.sink<Collect>("sink", many, opts(), &got);
+  p.start();
+  CHECK(p.waitFor(30s));
+  CHECK(got.size() == 3000);
+  bool inOrder = true;
+  for (std::size_t i = 0; i < got.size(); ++i) inOrder = inOrder && got[i] == static_cast<int>(2 * i);
+  CHECK(inOrder);
+}
+
 }  // namespace
 
 int main() {
@@ -566,6 +711,11 @@ int main() {
       {"build errors", testBuildErrors},
       {"json", testJson},
       {"onUpdate", testOnUpdate},
+      {"channel ring buffer", testChannelRing},
+      {"channel threads", testChannelThreads},
+      {"emitter reuse", testEmitterReuse},
+      {"no steady-state allocations", testNoSteadyStateAllocations},
+      {"single-worker ordered bypass", testSingleWorkerOrderedBypass},
   };
   for (auto& [name, fn] : tests) {
     const int before = g_failures;
