@@ -516,15 +516,25 @@ struct OutputPort {
   std::uint64_t seq = 0;
   std::atomic<std::uint64_t>* counter = nullptr;
 
-  bool pushAll(std::vector<T>&& items) {
+  /// Pushes every item (moving from them) and clears `items`, keeping its
+  /// capacity. Returns false if the channel was closed or aborted.
+  bool pushAll(std::vector<T>& items) {
     if (items.empty()) return true;
-    std::lock_guard<std::mutex> lk(m);
-    for (auto& x : items) {
-      if (!channel->push(Packet<T>{seq++, std::move(x)})) return false;
-      counter->fetch_add(1, std::memory_order_relaxed);
+    bool ok = true;
+    {
+      std::lock_guard<std::mutex> lk(m);
+      for (auto& x : items) {
+        if (!channel->push(Packet<T>{seq++, std::move(x)})) {
+          ok = false;
+          break;
+        }
+        counter->fetch_add(1, std::memory_order_relaxed);
+      }
     }
-    return true;
+    items.clear();
+    return ok;
   }
+  bool pushAll(std::vector<T>&& items) { return pushAll(items); }
 };
 
 constexpr auto kPollInterval = std::chrono::milliseconds(50);
@@ -542,17 +552,17 @@ class SourceStage final : public Stage {
  protected:
   void run(Replica& r) override {
     auto& src = static_cast<Source<Out>&>(*r.block);
+    Emitter<Out> em;  // reused for every call: no allocation in steady state
     while (!aborted_) {
       if (stop_ && !src.drainOnStop()) break;
       beforeItem(r);
-      Emitter<Out> em;
       bool more = true;
       const auto t0 = nowNs();
       guarded([&] { more = src.produce(em); });
       const auto t1 = nowNs();
       busyNs_ += t1 - t0;
       itemsIn_.fetch_add(em.size());
-      const bool ok = port_.pushAll(em.take());
+      const bool ok = port_.pushAll(em.items());
       blockedNs_ += nowNs() - t1;
       if (!ok || !more) break;
     }
@@ -587,6 +597,7 @@ class BlockStage final : public Stage {
   void run(Replica& r) override {
     auto& blk = static_cast<Block<In, Out>&>(*r.block);
     std::optional<Packet<In>> pkt;
+    Emitter<Out> em;  // reused for every item: no allocation in steady state
     while (!r.retire) {
       const PopStatus st = input_->popFor(pkt, kPollInterval);
       if (st == PopStatus::Timeout) continue;
@@ -596,12 +607,11 @@ class BlockStage final : public Stage {
       }
       itemsIn_.fetch_add(1);
       beforeItem(r);
-      Emitter<Out> em;
       const auto t0 = nowNs();
       guarded([&] { blk.process(std::move(pkt->data), em); });
       const auto t1 = nowNs();
       busyNs_ += t1 - t0;
-      const bool ok = deliver(pkt->seq, em.take());
+      const bool ok = deliver(pkt->seq, em);
       blockedNs_ += nowNs() - t1;
       if (!ok) {
         markInputDone();
@@ -615,7 +625,7 @@ class BlockStage final : public Stage {
     Emitter<Out> em;
     guarded([&] { blk.flush(em); });
     std::lock_guard<std::mutex> lk(reorderM_);  // don't interleave with an ordered release
-    port_.pushAll(em.take());
+    port_.pushAll(em.items());
   }
   void closeOutput() override { port_.channel->close(); }
   void abortChannels() override {
@@ -634,12 +644,18 @@ class BlockStage final : public Stage {
   /// Forwards the outputs of input `seq`. In ordered mode results are held
   /// until all earlier inputs are done. A worker that is too far ahead of the
   /// oldest unfinished item waits, which bounds the reorder memory.
-  bool deliver(std::uint64_t seq, std::vector<Out>&& outs) {
-    if (!options().ordered) return port_.pushAll(std::move(outs));
+  ///
+  /// A stage that can never have more than one worker is ordered by
+  /// construction, so it skips the reorder buffer (no lock, no allocation).
+  bool deliver(std::uint64_t seq, Emitter<Out>& em) {
+    if (!options().ordered || options().maxWorkers == 1) return port_.pushAll(em.items());
     std::unique_lock<std::mutex> lk(reorderM_);
     reorderCv_.wait(lk, [&] { return seq < next_ + options().window || aborted_; });
-    if (aborted_) return false;
-    pending_.emplace(seq, std::move(outs));
+    if (aborted_) {
+      em.clear();
+      return false;
+    }
+    pending_.emplace(seq, em.take());
     bool ok = true;
     for (auto it = pending_.find(next_); it != pending_.end(); it = pending_.find(next_)) {
       std::vector<Out> v = std::move(it->second);

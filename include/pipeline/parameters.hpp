@@ -180,11 +180,11 @@ template <typename T>
 class Monitor final : public MonitorBase {
   static constexpr bool kAtomic = std::is_arithmetic_v<T>;
   struct AtomicStore {
-    explicit AtomicStore(T v) : v(v) {}
+    explicit AtomicStore(T init) : v(init) {}
     std::atomic<T> v;
   };
   struct LockedStore {
-    explicit LockedStore(T v) : v(std::move(v)) {}
+    explicit LockedStore(T init) : v(std::move(init)) {}
     mutable std::mutex m;
     T v;
   };

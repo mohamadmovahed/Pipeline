@@ -21,6 +21,11 @@ adc ──▶ demod ──▶ decoder ×N ──▶ datalink ──▶ app
   pipeline; `PipelinePool` starts and stops pipelines by id without blocking the caller,
   e.g. one receiver chain per active channel of a wideband capture.
 * **Wrap existing code**: lambdas (`map`, `blockFn`, `sourceFn`, `sinkFn`) turn library calls into stages.
+* **No allocation per item in steady state** for single-worker stages (and unordered
+  parallel ones): each worker reuses its `Emitter` buffer, a stage that cannot have more
+  than one worker skips the reorder buffer, and queues are circular buffers that only grow
+  (by doubling, up to their capacity) until they reach their high-water mark. Ordered
+  parallel stages still allocate one reorder entry per item. Items are moved, never copied.
 
 **Tutorial:** open [`docs/tutorial.html`](docs/tutorial.html) in a browser.
 
@@ -81,7 +86,8 @@ ctest --test-dir build --output-on-failure
 | `examples/receiver_chain.cpp` | TX simulator → demodulator → autoscaled decoder → data link → app, with a console UI |
 | `examples/multichannel_receiver.cpp` | wideband front end that starts/stops one receiver per active channel (DSP stubbed) |
 | `examples/quickstart.cpp` | smallest useful program |
-| `tests/test_pipeline.cpp` | dependency-free tests (ordering, rates, controls, autoscaling, errors, shutdown, feeders, pool) |
+| `tests/test_pipeline.cpp` | dependency-free tests (ordering, rates, controls, autoscaling, errors, shutdown, feeders, pool, queue ring buffer, allocation-free steady state) |
 | `docs/tutorial.html` | the tutorial |
 
 Requires a C++17 compiler and CMake 3.16+. No other dependencies. MIT licence.
+Changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
